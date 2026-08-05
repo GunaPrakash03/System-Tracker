@@ -16,7 +16,7 @@ Track, per employee, on Ubuntu:
 
 …while trimming the Gauzy UI down to only the features we use.
 
-## Platform reality (Ubuntu + Wayland)
+## Platform reality (Ubuntu)
 
 Findings from a working trial on this hardware — these drive the design:
 
@@ -24,11 +24,19 @@ Findings from a working trial on this hardware — these drive the design:
 |---|---|---|---|
 | Focused app + window title | ✅ | ✅ | use existing |
 | Idle / keyboard-mouse activity | ✅ | ✅ | use existing |
+| **All open windows + titles** | ❌ | ❌ | **✅ on Xorg** (impossible on Wayland) |
 | Browser tab URL | ❌ macOS-only in code | ✅ via extension | use ActivityWatch |
 | Browser audible flag (YouTube/Spotify in bg) | ❌ | ✅ | use ActivityWatch |
 | Background / headless processes | ❌ | ❌ | **custom `/proc` tracker** |
 | Screenshots | ❌ on Wayland | ❌ | out of scope |
 | Org layer (employees, approvals, reports) | ✅ | ❌ | use Gauzy |
+
+**Session type matters.** This machine now logs in via **Xorg**, which lifts the
+main Wayland restriction: an app may enumerate every other app's windows. The
+tracker therefore reports all open windows with their titles, resolves the
+focused window to its owning process by PID, and needs no GNOME Shell extension.
+It still runs on Wayland, with those three falling back to the older (narrower)
+D-Bus route. See [`tracker/README.md`](tracker/README.md#session-backends).
 
 **Consequence:** capture is strongest when Gauzy + ActivityWatch + a custom
 process tracker are combined, each doing what it does best.
@@ -39,7 +47,8 @@ process tracker are combined, each doing what it does best.
    Contacts, Jobs) via Gauzy's built-in feature toggles. No source changes.
 2. **Background/backend process tracker** — a `/proc`-based watcher that records
    which processes (GUI and headless) are running per interval, and for how long.
-   Works on Wayland, unlike window-enumeration approaches.
+   The `/proc` core works everywhere; on Xorg it additionally enumerates all open
+   windows and their titles.
 3. **Media categorisation** — classify browser activity (YouTube, Spotify, etc.)
    from ActivityWatch's `url` + `audible` data, distinguishing *actively watching*
    from *background music*.

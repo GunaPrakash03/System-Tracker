@@ -4,6 +4,16 @@
 **Source examined:** `/home/sys0041/ever-gauzy` (cloned Ever Gauzy source, AGPL-3.0)
 **Question:** Can we (1) remove unneeded modules and (2) add background-app tracking?
 
+> **Update — the Wayland question below is now resolved.** The machine has since
+> been configured to log in on **Xorg**, which takes **Option A** (see
+> *Options for background-window capture*) off the table as a hypothetical and
+> makes it real. `tracker/proc_tracker.py` now enumerates every open window with
+> its title via `_NET_CLIENT_LIST`, matches the focused window to its process by
+> `_NET_WM_PID`, and reads idle time from the X server — so the GNOME "Focused
+> Window D-Bus" extension is no longer required. What did **not** change: browser
+> **tabs** are still not OS windows, so per-tab and per-URL tracking remains
+> extension-only. Everything below is the original assessment, kept as written.
+
 ---
 
 ## Verdict at a glance

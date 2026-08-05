@@ -53,8 +53,9 @@ until shutdown (run it as a service — see below). Each moment counts as:
   time active even with no input, when `count_audio_as_active` is true).
 - **IDLE** — none of the above for the whole threshold window.
 
-Signals used (both dependency-free, work on Wayland and X11):
-- **Input idle** — GNOME Mutter IdleMonitor (`GetIdletime`).
+Signals used (all dependency-free, work on Wayland and X11):
+- **Input idle** — the X server's XScreenSaver counter on X11, else GNOME Mutter
+  IdleMonitor (`GetIdletime`). Both were measured to agree to within ~6 ms.
 - **Audio/video** — kernel `/proc/asound/.../status` (`RUNNING` = playing).
 
 The active seconds per slot become Gauzy's **activity %** (active ÷ slot
@@ -66,11 +67,14 @@ Each interval it reports, per app/process:
 
 - **Process presence + CPU %** — every running app and headless backend from
   `/proc` (kernel threads excluded).
-- **Foreground vs background** — by sampling the focused window (GNOME D-Bus)
-  every `focus_sample_seconds`, it records how many seconds each app was
-  actually **on screen** (`foregroundSeconds` in `metaData`, `mode:
-  foreground|background`). An app watched the whole minute shows ~100% activity;
-  one merely running in the background shows ~0%.
+- **Foreground vs background** — by sampling the focused window every
+  `focus_sample_seconds`, it records how many seconds each app was actually
+  **on screen** (`foregroundSeconds` in `metaData`, `mode: foreground|background`).
+  An app watched the whole minute shows ~100% activity; one merely running in the
+  background shows ~0%.
+- **All open windows + titles** (**X11 only**) — every window on the session,
+  including ones never focused, as `windowTitles` / `windowCount` in `metaData`
+  and appended to the activity description. See *Session backends* below.
 - **Active browser tab** — while a browser (`browsers` list) is focused, the
   window title is recorded as a `URL` activity, so Gauzy's **Visited Sites**
   fills in. This is by **page title**, active tab only.
@@ -78,16 +82,34 @@ Each interval it reports, per app/process:
 Verified live: `postgres`, `dockerd`, `containerd`, `node`, `nginx`, `code`,
 `gnome-terminal-server`, `bash` captured; terminal correctly shown as foreground
 (`fg=12s`) while backends show `fg=0s`; Chrome/Firefox titles resolve to tab names.
+On Xorg, a background Chrome window's title is captured alongside the focused
+one (`chrome … wins=['… - Slack - Google Chrome', 'Gauzy - Google Chrome']`).
+
+## Session backends
+
+Picked automatically at startup from `DISPLAY` / `XDG_SESSION_TYPE`; the Wayland
+route is also the fallback if an X query returns nothing.
+
+| Signal | X11 (Xorg) | Wayland |
+|---|---|---|
+| Focused window | `xprop` `_NET_ACTIVE_WINDOW` — **no extension needed** | "Focused Window D-Bus" GNOME extension (required) |
+| All open windows | `xprop` `_NET_CLIENT_LIST` — **all windows + titles** | ✗ impossible — Wayland forbids it |
+| Focused app → process | exact, via the window's `_NET_WM_PID` | name-token guess from `wm_class` |
+| Input idle | XScreenSaver extension (`libXss`) | GNOME Mutter IdleMonitor |
+
+Switching this machine's login session to **Ubuntu on Xorg** is what enables the
+middle two rows — it was the open question in `docs/feasibility.md`.
 
 ## What it does NOT capture
 
 - **Keyboard/mouse intensity** — that's the Gauzy agent's job; this posts
   `keyboard:0, mouse:0`. "Foreground seconds" is the engagement signal instead.
-- **Full browser URLs or background tabs** — only the **active tab's title**,
-  because Linux/Wayland exposes no way for an external process to read another
-  app's URLs. Full per-URL history needs a browser extension (out of scope here
-  by request).
-- **Screenshots** — not captured (Wayland).
+- **Full browser URLs or background tabs** — only window **titles**, never URLs.
+  Xorg reveals every browser *window* and its active tab's title, but tabs are
+  not OS windows: the other tabs in a window remain invisible, and no window
+  property carries the URL. Full per-URL history needs a browser extension (out
+  of scope here by request) or AT-SPI accessibility integration.
+- **Screenshots** — not captured.
 
 ## Run as a service (systemd user unit)
 

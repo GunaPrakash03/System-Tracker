@@ -6,20 +6,31 @@ Per interval, for the logged-in employee, it captures:
 
   * PROCESSES (GUI + headless): every running app/backend from /proc — node,
     postgres, docker, nginx, dev tools (VS Code, Postman, terminals, editors).
-  * FOREGROUND vs BACKGROUND: by sampling the focused window (GNOME D-Bus) it
-    measures how long each app was ON SCREEN (being watched) vs merely running
-    in the background. Reported as the activity's "overall" seconds, so watched
-    apps show high activity % and background-only apps ~0%.
+  * FOREGROUND vs BACKGROUND: by sampling the focused window it measures how
+    long each app was ON SCREEN (being watched) vs merely running in the
+    background. Reported as the activity's "overall" seconds, so watched apps
+    show high activity % and background-only apps ~0%.
   * BROWSER TABS: while a browser is focused, records the active tab (from the
     window title) as a URL activity, so Gauzy's "Visited Sites" is populated.
     No ActivityWatch, no browser extension — but this captures the ACTIVE tab's
     page TITLE only (not the full URL, and not background tabs). That is the
-    hard ceiling for browser tracking on Linux/Wayland without an extension.
+    hard ceiling for browser tracking without an extension or accessibility
+    (AT-SPI) integration.
 
 Pushes via POST /api/timesheet/time-slot (the desktop-agent API). Stdlib only.
-Works on Wayland and X11.
+
+Session backends, chosen automatically at runtime:
+
+  X11      focused window via xprop (_NET_ACTIVE_WINDOW), idle time via the
+           X server's XScreenSaver extension. Needs NO GNOME extension.
+  Wayland  focused window via the 'Focused Window D-Bus' GNOME extension,
+           idle time via GNOME Mutter's IdleMonitor.
+
+The Wayland path is also the fallback if an X query returns nothing.
 """
 
+import ctypes
+import ctypes.util
 import json
 import os
 import time
@@ -186,13 +197,107 @@ def match(name, compiled):
 # Focused window (GNOME D-Bus) — foreground time + active browser tab
 # --------------------------------------------------------------------------- #
 
+ON_X11 = bool(os.environ.get("DISPLAY")) and \
+    os.environ.get("XDG_SESSION_TYPE", "").lower() != "wayland"
+
+
+def _xprop(args):
+    """Run xprop and return stdout, or None if it failed / isn't installed."""
+    try:
+        r = subprocess.run(["xprop"] + args, capture_output=True, text=True, timeout=4)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _unquote(line):
+    """Pull the first "..."-quoted value out of an xprop output line."""
+    m = re.search(r'"((?:[^"\\]|\\.)*)"', line or "")
+    if not m:
+        return None
+    return m.group(1).replace('\\"', '"').replace("\\\\", "\\") or None
+
+
+def _window_props(win_id):
+    """(wm_class, title, pid, win_type) for one X window id."""
+    out = _xprop(["-id", win_id, "-notype", "WM_CLASS", "_NET_WM_NAME",
+                  "WM_NAME", "_NET_WM_PID", "_NET_WM_WINDOW_TYPE"])
+    if not out:
+        return (None, None, None, None)
+    wm_class = title = pid = win_type = None
+    for line in out.splitlines():
+        if line.startswith("WM_CLASS"):
+            # WM_CLASS = "instance", "Class" — the class is what we key on.
+            vals = re.findall(r'"((?:[^"\\]|\\.)*)"', line)
+            if vals:
+                wm_class = vals[-1].lower() or None
+        elif line.startswith("_NET_WM_NAME"):
+            title = _unquote(line) or title
+        elif line.startswith("WM_NAME") and title is None:
+            title = _unquote(line)
+        elif line.startswith("_NET_WM_PID"):
+            m = re.search(r"=\s*(\d+)", line)
+            if m:
+                pid = m.group(1)
+        elif line.startswith("_NET_WM_WINDOW_TYPE"):
+            win_type = line.split("=", 1)[-1].strip()
+    return (wm_class, title, pid, win_type)
+
+
+def get_focused_x11():
+    """Focused (wm_class, title, pid) straight from the X server — no GNOME
+    extension required. _NET_ACTIVE_WINDOW on the root window gives the
+    focused window id; its properties give the app, title and owning PID."""
+    out = _xprop(["-root", "-notype", "_NET_ACTIVE_WINDOW"])
+    if not out:
+        return (None, None, None)
+    m = re.search(r"(0x[0-9a-fA-F]+)", out)
+    if not m or int(m.group(1), 16) == 0:
+        return (None, None, None)
+    wm_class, title, pid, _ = _window_props(m.group(1))
+    return (wm_class, title, pid)
+
+
+# Window types that are part of the desktop shell, not apps the user "uses".
+_SKIP_WINDOW_TYPES = ("_NET_WM_WINDOW_TYPE_DESKTOP", "_NET_WM_WINDOW_TYPE_DOCK")
+
+
+def list_windows():
+    """Every open window on the X session: [{wm_class, title, pid}].
+
+    This is the capability an Xorg session unlocks — Wayland forbids one app
+    from seeing another app's windows, so there we only ever get the FOCUSED
+    window. Here _NET_CLIENT_LIST enumerates them all, which means background
+    windows (a second browser window, a minimised editor) are visible too,
+    each with its own title. Returns [] on Wayland or if xprop is missing."""
+    if not ON_X11:
+        return []
+    out = _xprop(["-root", "-notype", "_NET_CLIENT_LIST"])
+    if not out:
+        return []
+    windows = []
+    for win_id in re.findall(r"0x[0-9a-fA-F]+", out):
+        wm_class, title, pid, win_type = _window_props(win_id)
+        if not wm_class or (win_type and win_type in _SKIP_WINDOW_TYPES):
+            continue
+        windows.append({"wm_class": wm_class, "title": title, "pid": pid})
+    return windows
+
+
 def get_focused():
-    """Return (wm_class, title) of the focused window, or (None, None).
-    Needs the 'Focused Window D-Bus' GNOME extension.
+    """Return (wm_class, title, pid) of the focused window, or (None, None, None).
+
+    On X11 this reads the X server directly (no extra software). Otherwise —
+    and if the X query comes up empty — it falls back to the 'Focused Window
+    D-Bus' GNOME extension, which is the only route that works on Wayland.
 
     Uses busctl's --json mode: the plain output escapes non-ASCII title bytes
     as octal (\\NNN), which is not valid JSON. --json=short returns the D-Bus
     string (itself a JSON document) as properly-escaped, UTF-8-safe data."""
+    if ON_X11:
+        wm, title, pid = get_focused_x11()
+        if wm:
+            return (wm, title, pid)
     try:
         r = subprocess.run(
             ["busctl", "--json=short", "--user", "call", "org.gnome.Shell",
@@ -205,9 +310,12 @@ def get_focused():
         if isinstance(payload, list):
             payload = payload[0]
         data = json.loads(payload)            # the actual window object
-        return ((data.get("wm_class") or "").lower() or None, data.get("title") or None)
+        pid = data.get("pid")
+        return ((data.get("wm_class") or "").lower() or None,
+                data.get("title") or None,
+                str(pid) if pid else None)
     except Exception:
-        return (None, None)
+        return (None, None, None)
 
 
 def clean_tab_title(title, browsers):
@@ -224,9 +332,66 @@ def clean_tab_title(title, browsers):
 # Activity signals — idle time (keyboard/mouse) and media playback
 # --------------------------------------------------------------------------- #
 
+class _XScreenSaverInfo(ctypes.Structure):
+    _fields_ = [("window", ctypes.c_ulong), ("state", ctypes.c_int),
+                ("kind", ctypes.c_int), ("til_or_since", ctypes.c_ulong),
+                ("idle", ctypes.c_ulong), ("eventMask", ctypes.c_ulong)]
+
+
+_xss_state = None      # (libX11, libXss, display, info) once initialised; False if N/A
+
+
+def _xss_init():
+    """Open the X display and the XScreenSaver extension once, lazily."""
+    global _xss_state
+    if _xss_state is not None:
+        return _xss_state
+    _xss_state = False
+    if not ON_X11:
+        return _xss_state
+    try:
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
+        xss = ctypes.CDLL(ctypes.util.find_library("Xss"))
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(_XScreenSaverInfo)
+        xss.XScreenSaverQueryInfo.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                                              ctypes.POINTER(_XScreenSaverInfo)]
+        display = x11.XOpenDisplay(None)
+        if not display:
+            return _xss_state
+        info = xss.XScreenSaverAllocInfo()
+        _xss_state = (x11, xss, display, info)
+    except (OSError, AttributeError, TypeError):
+        _xss_state = False
+    return _xss_state
+
+
+def get_idle_seconds_x11():
+    """Seconds since last input from the X server's XScreenSaver extension.
+    Needs no GNOME session and no external binary. None if unavailable."""
+    state = _xss_init()
+    if not state:
+        return None
+    x11, xss, display, info = state
+    try:
+        if not xss.XScreenSaverQueryInfo(display, x11.XDefaultRootWindow(display), info):
+            return None
+        return info.contents.idle / 1000.0
+    except Exception:
+        return None
+
+
 def get_idle_seconds():
-    """Seconds since the last keyboard/mouse input, via GNOME Mutter
-    IdleMonitor (works on Wayland and X11). None if unavailable."""
+    """Seconds since the last keyboard/mouse input. Prefers the X server's own
+    XScreenSaver counter on X11, falling back to GNOME Mutter's IdleMonitor
+    (the only option on Wayland). None if neither is available."""
+    if ON_X11:
+        idle = get_idle_seconds_x11()
+        if idle is not None:
+            return idle
     try:
         r = subprocess.run(
             ["busctl", "--user", "call",
@@ -268,9 +433,20 @@ def is_active_now(cfg):
 # Build the per-interval report
 # --------------------------------------------------------------------------- #
 
-def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds):
-    """[{name, cpu_percent, foreground_seconds}] for reportable processes.
-    fg_seconds: focused-wm_class -> seconds on screen this interval."""
+def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds,
+                       fg_by_pid=None, windows=None):
+    """[{name, cpu_percent, foreground_seconds, window_titles}] for reportable
+    processes.
+
+    fg_seconds: focused-wm_class -> seconds on screen this interval.
+    fg_by_pid:  focused-PID -> seconds on screen. Preferred when available
+                (X11 gives the focused window's PID), because matching the
+                owning process by PID is exact, where wm_class-to-process-name
+                matching is only a guess.
+    windows:    every open window (X11 only) -> attached per app, so a row can
+                show the titles of windows that were never focused."""
+    fg_by_pid = fg_by_pid or {}
+    windows = windows or []
     agg = {}       # name -> cpu_ticks delta
     uptime = {}    # name -> longest-running instance's uptime (seconds)
     for pid, info in curr.items():
@@ -279,6 +455,13 @@ def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds
         agg.setdefault(name, 0)
         agg[name] += max(0, info["cpu_ticks"] - prev_ticks)
         uptime[name] = max(uptime.get(name, 0), info.get("uptime", 0))
+
+    # Resolve focused PIDs to process names — exact, no token guessing.
+    fg_by_name = {}
+    for pid, secs in fg_by_pid.items():
+        info = curr.get(pid) or prev.get(pid)
+        if info:
+            fg_by_name[info["name"]] = fg_by_name.get(info["name"], 0) + secs
 
     rows = []
     for name, ticks in agg.items():
@@ -291,11 +474,22 @@ def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds
         elif cpu < cfg["cpu_min_percent"]:
             continue
         name_tokens = tokens(name)
-        fg = sum(secs for wm, secs in fg_seconds.items() if name_tokens & tokens(wm))
+        if name in fg_by_name:
+            fg = fg_by_name[name]
+        else:
+            fg = sum(secs for wm, secs in fg_seconds.items() if name_tokens & tokens(wm))
+        titles = []
+        for w in windows:
+            owner = curr.get(w["pid"], {}).get("name") if w["pid"] else None
+            hit = (owner == name) if owner else bool(name_tokens & tokens(w["wm_class"]))
+            if hit and w["title"] and w["title"] not in titles:
+                titles.append(w["title"])
         rows.append({"name": name, "cpu_percent": round(cpu, 1),
                      "foreground_seconds": min(interval, fg),
-                     "running_seconds": int(uptime.get(name, 0))})
-    rows.sort(key=lambda r: (r["foreground_seconds"], r["cpu_percent"]), reverse=True)
+                     "running_seconds": int(uptime.get(name, 0)),
+                     "window_titles": titles})
+    rows.sort(key=lambda r: (r["foreground_seconds"], len(r["window_titles"]),
+                             r["cpu_percent"]), reverse=True)
     return rows[: cfg["max_processes"]]
 
 
@@ -360,12 +554,19 @@ class GauzyClient:
         acts = []
         for r in proc_rows:
             running = r.get("running_seconds", 0)
+            titles = r.get("window_titles") or []
+            desc = f"Running for {fmt_duration(running)}"
+            if titles:
+                desc += " — " + "; ".join(titles[:3])
             acts.append({**base, "title": r["name"], "duration": duration, "type": "APP",
-                         "description": f"Running for {fmt_duration(running)}",
+                         "description": desc,
                          "metaData": [{"source": "system-tracker",
                                        "cpuPercent": r["cpu_percent"],
                                        "foregroundSeconds": r["foreground_seconds"],
                                        "runningSeconds": running,
+                                       # Open windows and their titles — X11 only.
+                                       "windowCount": len(titles),
+                                       "windowTitles": titles,
                                        "mode": "foreground" if r["foreground_seconds"] > 0 else "background"}]})
         for title, secs in tabs.items():
             acts.append({**base, "title": title, "duration": max(1, int(secs)), "type": "URL",
@@ -411,6 +612,7 @@ def main():
         while True:
             started = datetime.now(timezone.utc)
             fg_seconds = {}       # wm_class -> seconds focused
+            fg_by_pid = {}        # focused PID -> seconds focused (exact match)
             tabs = {}             # active browser tab title -> seconds watched
             active_seconds = 0    # seconds this slot was active (input or audio)
             audio_seconds = 0     # seconds audio/video was playing
@@ -424,16 +626,20 @@ def main():
                 if sig["audio"]:
                     audio_seconds += fsample
                 # focus / browser-tab sample
-                wm, title = get_focused()
+                wm, title, fpid = get_focused()
                 if not wm:
                     continue
                 fg_seconds[wm] = fg_seconds.get(wm, 0) + fsample
+                if fpid:
+                    fg_by_pid[fpid] = fg_by_pid.get(fpid, 0) + fsample
                 if any(b in wm for b in browsers):
                     tab = clean_tab_title(title, browsers)
                     if tab:
                         tabs[tab] = tabs.get(tab, 0) + fsample
+            windows = list_windows()      # all open windows (X11 only; [] on Wayland)
             curr = scan_proc()
-            rows = build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds)
+            rows = build_process_rows(prev, curr, interval, cfg, compiled, excluded,
+                                      fg_seconds, fg_by_pid, windows)
             prev = curr
             if not rows and not tabs:
                 log(cfg, "nothing to report this interval")
@@ -446,8 +652,9 @@ def main():
                 extra = f" (audio {audio_seconds}s)" if audio_seconds else ""
                 fg = [r for r in rows if r["foreground_seconds"] > 0]
                 watching = ", ".join(f"{r['name']}" for r in fg[:3]) or "-"
+                wins = f" | {len(windows)} windows" if windows else ""
                 log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
-                         f"{len(rows)} apps, on-screen: {watching} | {len(tabs)} tabs")
+                         f"{len(rows)} apps, on-screen: {watching} | {len(tabs)} tabs{wins}")
             elif status == 401:
                 log(cfg, "token expired, re-login"); client.login()
             else:
