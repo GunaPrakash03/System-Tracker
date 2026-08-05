@@ -101,8 +101,34 @@ def _read(path):
         return None
 
 
+def _boot_time():
+    """Epoch seconds at which the system booted (from /proc/stat btime)."""
+    data = _read("/proc/stat")
+    if data:
+        for line in data.decode("utf-8", "replace").splitlines():
+            if line.startswith("btime "):
+                return int(line.split()[1])
+    return 0
+
+
+_BTIME = _boot_time()
+
+
+def fmt_duration(seconds):
+    """Human 'Xh Ym' / 'Ym Zs' string for a running time."""
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
 def scan_proc():
     out = {}
+    now = time.time()
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
@@ -120,6 +146,7 @@ def scan_proc():
             rest = s[rparen + 2:].split()
             utime = int(rest[11])
             stime = int(rest[12])
+            starttime = int(rest[19])          # ticks since boot
         except (ValueError, IndexError):
             continue
         cmdline = cmdline_raw.replace(b"\x00", b" ").decode("utf-8", "replace").strip()
@@ -128,7 +155,8 @@ def scan_proc():
             base = os.path.basename(cmdline.split(" ")[0])
             if base and not base.startswith("["):
                 name = base or comm
-        out[pid] = {"name": name, "cpu_ticks": utime + stime}
+        uptime = max(0, now - (_BTIME + starttime / _CLK_TCK)) if _BTIME else 0
+        out[pid] = {"name": name, "cpu_ticks": utime + stime, "uptime": uptime}
     return out
 
 
@@ -185,12 +213,14 @@ def clean_tab_title(title, browsers):
 def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds):
     """[{name, cpu_percent, foreground_seconds}] for reportable processes.
     fg_seconds: focused-wm_class -> seconds on screen this interval."""
-    agg = {}
+    agg = {}       # name -> cpu_ticks delta
+    uptime = {}    # name -> longest-running instance's uptime (seconds)
     for pid, info in curr.items():
         name = info["name"]
         prev_ticks = prev.get(pid, {}).get("cpu_ticks", info["cpu_ticks"])
         agg.setdefault(name, 0)
         agg[name] += max(0, info["cpu_ticks"] - prev_ticks)
+        uptime[name] = max(uptime.get(name, 0), info.get("uptime", 0))
 
     rows = []
     for name, ticks in agg.items():
@@ -205,7 +235,8 @@ def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds
         name_tokens = tokens(name)
         fg = sum(secs for wm, secs in fg_seconds.items() if name_tokens & tokens(wm))
         rows.append({"name": name, "cpu_percent": round(cpu, 1),
-                     "foreground_seconds": min(interval, fg)})
+                     "foreground_seconds": min(interval, fg),
+                     "running_seconds": int(uptime.get(name, 0))})
     rows.sort(key=lambda r: (r["foreground_seconds"], r["cpu_percent"]), reverse=True)
     return rows[: cfg["max_processes"]]
 
@@ -268,10 +299,13 @@ class GauzyClient:
                 "organizationId": self.organization_id, "employeeId": self.employee_id}
         acts = []
         for r in proc_rows:
+            running = r.get("running_seconds", 0)
             acts.append({**base, "title": r["name"], "duration": duration, "type": "APP",
+                         "description": f"Running for {fmt_duration(running)}",
                          "metaData": [{"source": "system-tracker",
                                        "cpuPercent": r["cpu_percent"],
                                        "foregroundSeconds": r["foreground_seconds"],
+                                       "runningSeconds": running,
                                        "mode": "foreground" if r["foreground_seconds"] > 0 else "background"}]})
         for title, secs in tabs.items():
             acts.append({**base, "title": title, "duration": max(1, int(secs)), "type": "URL",
