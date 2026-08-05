@@ -43,6 +43,23 @@ GAUZY_URL=http://localhost:3000 GAUZY_EMAIL=you@co GAUZY_PASSWORD=... \
 | `cpu_min_percent` | Threshold when `watchlist` is empty |
 | `max_processes` | Cap reported processes per interval (busiest first) |
 
+## Active vs idle time
+
+The tracker measures whether the machine is genuinely being used, from login
+until shutdown (run it as a service — see below). Each moment counts as:
+
+- **ACTIVE** — keyboard/mouse was used within `idle_threshold_seconds` (default
+  180s / 3 min), **OR** audio/video is playing (background video/music keeps the
+  time active even with no input, when `count_audio_as_active` is true).
+- **IDLE** — none of the above for the whole threshold window.
+
+Signals used (both dependency-free, work on Wayland and X11):
+- **Input idle** — GNOME Mutter IdleMonitor (`GetIdletime`).
+- **Audio/video** — kernel `/proc/asound/.../status` (`RUNNING` = playing).
+
+The active seconds per slot become Gauzy's **activity %** (active ÷ slot
+duration), so the dashboard shows real engagement instead of a flat ~1%.
+
 ## What it captures
 
 Each interval it reports, per app/process:

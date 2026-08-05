@@ -63,6 +63,20 @@ DEFAULT_CONFIG = {
     "cpu_min_percent": 1.0,
     "max_processes": 40,
     "verbose": True,
+
+    # ----- Active vs idle time --------------------------------------------- #
+    # The system counts as ACTIVE for a moment if EITHER the user gave input
+    # recently (keyboard/mouse) OR audio/video is playing. If neither is true
+    # for `idle_threshold_seconds`, that moment counts as IDLE.
+    #
+    #   active  = keyboard/mouse used within idle_threshold_seconds
+    #             OR audio/video currently playing (when count_audio_as_active)
+    #   idle    = none of the above
+    #
+    # Idle detection uses GNOME's Mutter IdleMonitor (works on Wayland & X11);
+    # audio detection reads /proc/asound stream state (no external tools).
+    "idle_threshold_seconds": 180,      # 3 min of no input & no audio => idle
+    "count_audio_as_active": True,      # background video/music keeps it active
 }
 
 
@@ -207,6 +221,50 @@ def clean_tab_title(title, browsers):
 
 
 # --------------------------------------------------------------------------- #
+# Activity signals — idle time (keyboard/mouse) and media playback
+# --------------------------------------------------------------------------- #
+
+def get_idle_seconds():
+    """Seconds since the last keyboard/mouse input, via GNOME Mutter
+    IdleMonitor (works on Wayland and X11). None if unavailable."""
+    try:
+        r = subprocess.run(
+            ["busctl", "--user", "call",
+             "org.gnome.Mutter.IdleMonitor", "/org/gnome/Mutter/IdleMonitor/Core",
+             "org.gnome.Mutter.IdleMonitor", "GetIdletime"],
+            capture_output=True, text=True, timeout=4)
+        parts = r.stdout.split()          # output: "t <milliseconds>"
+        if len(parts) >= 2 and parts[0] == "t":
+            return int(parts[1]) / 1000.0
+    except Exception:
+        pass
+    return None
+
+
+def is_audio_playing():
+    """True if any sound-card stream is actively RUNNING (audio/video playing).
+    Reads the kernel's /proc/asound status files — no external tools needed."""
+    import glob
+    for status in glob.glob("/proc/asound/card*/pcm*/sub*/status"):
+        try:
+            with open(status) as fh:
+                if "RUNNING" in fh.readline():
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def is_active_now(cfg):
+    """Decide if this instant is active: recent input OR audio playing."""
+    idle = get_idle_seconds()
+    recent_input = (idle is not None) and (idle < cfg["idle_threshold_seconds"])
+    audio = cfg.get("count_audio_as_active", True) and is_audio_playing()
+    return recent_input or audio, {"idle_s": idle, "audio": audio,
+                                   "recent_input": recent_input}
+
+
+# --------------------------------------------------------------------------- #
 # Build the per-interval report
 # --------------------------------------------------------------------------- #
 
@@ -290,8 +348,10 @@ class GauzyClient:
         if not (self.employee_id and self.organization_id and self.tenant_id):
             raise RuntimeError("account has no employee/org/tenant; use an Employee account")
 
-    def post_time_slot(self, proc_rows, tabs, started_at, duration):
-        """tabs: {title -> seconds_watched}."""
+    def post_time_slot(self, proc_rows, tabs, started_at, duration,
+                        active_seconds, audio_seconds):
+        """tabs: {title -> seconds_watched}. active_seconds: how long this slot
+        was active (input or audio); audio_seconds: how long audio played."""
         date = started_at.strftime("%Y-%m-%d")
         tm = started_at.strftime("%H:%M:%S")
         recorded = started_at.isoformat()
@@ -310,11 +370,17 @@ class GauzyClient:
         for title, secs in tabs.items():
             acts.append({**base, "title": title, "duration": max(1, int(secs)), "type": "URL",
                          "metaData": [{"source": "system-tracker", "watchedSeconds": secs}]})
-        overall = min(duration, max((r["foreground_seconds"] for r in proc_rows), default=0)) or 1
+        # "overall" (active seconds) drives Gauzy's activity %: active time /
+        # slot duration. Active = keyboard/mouse used OR audio/video playing.
+        overall = max(0, min(duration, int(active_seconds)))
         payload = {
             "tenantId": self.tenant_id, "organizationId": self.organization_id,
             "employeeId": self.employee_id, "duration": duration,
-            "keyboard": 0, "mouse": 0, "overall": overall,
+            # keyboard/mouse are shown as "1" when there was real input activity
+            # this slot, else 0 — so the dashboard distinguishes active vs idle.
+            "keyboard": 1 if active_seconds > audio_seconds else 0,
+            "mouse": 1 if active_seconds > audio_seconds else 0,
+            "overall": overall,
             "startedAt": recorded, "recordedAt": recorded, "activities": acts,
         }
         return self._request("POST", "/api/timesheet/time-slot", payload)
@@ -344,11 +410,20 @@ def main():
     try:
         while True:
             started = datetime.now(timezone.utc)
-            fg_seconds = {}   # wm_class -> seconds focused
-            tabs = {}         # active browser tab title -> seconds watched
+            fg_seconds = {}       # wm_class -> seconds focused
+            tabs = {}             # active browser tab title -> seconds watched
+            active_seconds = 0    # seconds this slot was active (input or audio)
+            audio_seconds = 0     # seconds audio/video was playing
             deadline = time.monotonic() + interval
             while time.monotonic() < deadline:
                 time.sleep(fsample)
+                # activity sample: active if recent input OR audio playing
+                active, sig = is_active_now(cfg)
+                if active:
+                    active_seconds += fsample
+                if sig["audio"]:
+                    audio_seconds += fsample
+                # focus / browser-tab sample
                 wm, title = get_focused()
                 if not wm:
                     continue
@@ -363,12 +438,16 @@ def main():
             if not rows and not tabs:
                 log(cfg, "nothing to report this interval")
                 continue
-            status, resp = client.post_time_slot(rows, tabs, started, interval)
+            status, resp = client.post_time_slot(rows, tabs, started, interval,
+                                                 active_seconds, audio_seconds)
             if status in (200, 201):
+                pct = int(active_seconds / interval * 100)
+                state = "ACTIVE" if active_seconds > 0 else "IDLE"
+                extra = f" (audio {audio_seconds}s)" if audio_seconds else ""
                 fg = [r for r in rows if r["foreground_seconds"] > 0]
-                watching = ", ".join(f"{r['name']}({r['foreground_seconds']}s)" for r in fg[:4]) or "-"
-                tabnames = ", ".join(f"{t}({s}s)" for t, s in list(tabs.items())[:3]) or "-"
-                log(cfg, f"pushed {len(rows)} apps (on-screen: {watching}) | tabs: {tabnames}")
+                watching = ", ".join(f"{r['name']}" for r in fg[:3]) or "-"
+                log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
+                         f"{len(rows)} apps, on-screen: {watching} | {len(tabs)} tabs")
             elif status == 401:
                 log(cfg, "token expired, re-login"); client.login()
             else:

@@ -22,5 +22,7 @@
   ],
   "cpu_min_percent": 1.0,
   "max_processes": 40,
+  "idle_threshold_seconds": 180,
+  "count_audio_as_active": true,
   "verbose": true
 }
