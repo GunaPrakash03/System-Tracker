@@ -1,0 +1,15 @@
+{
+  "server_url": "http://localhost:3000",
+  "email": "admin@ever.co",
+  "password": "admin",
+  "interval_seconds": 60,
+  "watchlist": [
+    "code", "postman", "antigravity", "node", "postgres",
+    "docker", "dockerd", "containerd", "nginx", "python",
+    "php", "redis", "mysql", "mariadb", "java", "ruby",
+    "go$", "chrome", "firefox", "spotify"
+  ],
+  "cpu_min_percent": 1.0,
+  "max_processes": 40,
+  "verbose": true
+}
