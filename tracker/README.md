@@ -45,19 +45,32 @@ GAUZY_URL=http://localhost:3000 GAUZY_EMAIL=you@co GAUZY_PASSWORD=... \
 
 ## What it captures
 
-Per matched process, per interval: process **name**, **CPU %** for the interval
-(in `metaData`), and a duration. Kernel threads are excluded. Verified capturing
-`postgres`, `dockerd`, `containerd`, `node`, `nginx`, `code`, `java`, `python3`,
-`chrome` in a live test.
+Each interval it reports, per app/process:
+
+- **Process presence + CPU %** — every running app and headless backend from
+  `/proc` (kernel threads excluded).
+- **Foreground vs background** — by sampling the focused window (GNOME D-Bus)
+  every `focus_sample_seconds`, it records how many seconds each app was
+  actually **on screen** (`foregroundSeconds` in `metaData`, `mode:
+  foreground|background`). An app watched the whole minute shows ~100% activity;
+  one merely running in the background shows ~0%.
+- **Active browser tab** — while a browser (`browsers` list) is focused, the
+  window title is recorded as a `URL` activity, so Gauzy's **Visited Sites**
+  fills in. This is by **page title**, active tab only.
+
+Verified live: `postgres`, `dockerd`, `containerd`, `node`, `nginx`, `code`,
+`gnome-terminal-server`, `bash` captured; terminal correctly shown as foreground
+(`fg=12s`) while backends show `fg=0s`; Chrome/Firefox titles resolve to tab names.
 
 ## What it does NOT capture
 
-- **Keyboard/mouse activity** — that's the Gauzy agent's job; this reports
-  process presence + CPU, and posts `keyboard:0, mouse:0`.
-- **Browser tabs / URLs** — a process scan sees `chrome`, not the site. For
-  YouTube/Spotify and per-URL data use ActivityWatch's browser watcher.
-- **"Actively working" vs "just running"** — a daemon runs whether or not
-  anyone touches it. CPU % is a proxy for activity, not proof of engagement.
+- **Keyboard/mouse intensity** — that's the Gauzy agent's job; this posts
+  `keyboard:0, mouse:0`. "Foreground seconds" is the engagement signal instead.
+- **Full browser URLs or background tabs** — only the **active tab's title**,
+  because Linux/Wayland exposes no way for an external process to read another
+  app's URLs. Full per-URL history needs a browser extension (out of scope here
+  by request).
+- **Screenshots** — not captured (Wayland).
 
 ## Run as a service (systemd user unit)
 

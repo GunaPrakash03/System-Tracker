@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """
-System-Tracker — background/backend process tracker for Ever Gauzy.
+System-Tracker — process + focus + browser-tab tracker for Ever Gauzy.
 
-Captures which processes are running per interval (GUI apps AND headless
-backends — node, postgres, docker, plus dev tools like VS Code, Postman,
-Antigravity) and pushes them into a Gauzy instance as APP activities inside
-time slots, using the same API the official desktop agent uses.
+Per interval, for the logged-in employee, it captures:
 
-This fills the gap the Gauzy agent and ActivityWatch both leave on Linux:
-neither sees background/headless processes. See docs/feasibility.md.
+  * PROCESSES (GUI + headless): every running app/backend from /proc — node,
+    postgres, docker, nginx, dev tools (VS Code, Postman, terminals, editors).
+  * FOREGROUND vs BACKGROUND: by sampling the focused window (GNOME D-Bus) it
+    measures how long each app was ON SCREEN (being watched) vs merely running
+    in the background. Reported as the activity's "overall" seconds, so watched
+    apps show high activity % and background-only apps ~0%.
+  * BROWSER TABS: while a browser is focused, records the active tab (from the
+    window title) as a URL activity, so Gauzy's "Visited Sites" is populated.
+    No ActivityWatch, no browser extension — but this captures the ACTIVE tab's
+    page TITLE only (not the full URL, and not background tabs). That is the
+    hard ceiling for browser tracking on Linux/Wayland without an extension.
 
-Stdlib only — no pip install. Works on Wayland and X11 (reads /proc, not windows).
+Pushes via POST /api/timesheet/time-slot (the desktop-agent API). Stdlib only.
+Works on Wayland and X11.
 """
 
 import json
@@ -19,6 +26,7 @@ import time
 import re
 import sys
 import ssl
+import subprocess
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -32,34 +40,27 @@ DEFAULT_CONFIG = {
     "email": "admin@ever.co",
     "password": "admin",
     "interval_seconds": 60,
-    # A process is reported if its name matches one of these patterns
-    # (case-insensitive regex). Empty list => report every user process
-    # above cpu_min_percent. Kernel threads are always skipped.
+    # How often, inside each interval, to sample the focused window. Smaller =
+    # more accurate watch time. 5s over a 60s interval = 12 samples.
+    "focus_sample_seconds": 5,
+    # wm_class substrings treated as browsers (their focused title => a tab).
+    "browsers": ["chrome", "chromium", "firefox", "edge", "brave", "opera"],
     "watchlist": [
-        # editors / dev tools
-        r"code", r"postman", r"antigravity", r"sublime", r"idea", r"pycharm",
-        # terminals + shells + terminal tools
-        r"gnome-terminal", r"konsole", r"xterm", r"kitty", r"alacritty",
-        r"tilix", r"terminator", r"terminal",
-        r"^bash$", r"^zsh$", r"^fish$", r"tmux", r"screen$",
-        r"vim", r"nvim", r"nano", r"emacs", r"htop", r"ssh",
-        # runtimes / backends
-        r"node", r"postgres", r"docker", r"dockerd", r"containerd",
-        r"nginx", r"python", r"php", r"redis", r"mysql", r"mariadb",
-        r"java", r"ruby", r"go$",
-        # browsers / media
-        r"chrome", r"firefox", r"spotify",
+        "code", "postman", "antigravity", "sublime", "idea", "pycharm",
+        "gnome-terminal", "konsole", "xterm", "kitty", "alacritty",
+        "tilix", "terminator", "terminal",
+        "^bash$", "^zsh$", "^fish$", "tmux", "screen$",
+        "vim", "nvim", "nano", "emacs", "htop", "ssh",
+        "node", "postgres", "docker", "dockerd", "containerd",
+        "nginx", "python", "php", "redis", "mysql", "mariadb",
+        "java", "ruby", "go$",
+        "chrome", "firefox", "spotify",
     ],
-    # Processes matching any of these are ALWAYS skipped, even if they match the
-    # watchlist — filters out helper/sandbox noise (e.g. chrome-sandbox).
     "exclude": [
-        r"sandbox", r"crashpad", r"crash.?handler", r"-helper",
-        r"gpu.?process", r"utility", r"zygote", r"broker",
+        "sandbox", "crashpad", "crash.?handler", "-helper",
+        "gpu.?process", "utility", "zygote", "broker",
     ],
-    # If watchlist is empty, only report processes using at least this much
-    # CPU in the interval (percent of one core). Ignored when watchlist is set.
     "cpu_min_percent": 1.0,
-    # Report at most this many distinct processes per interval (busiest first).
     "max_processes": 40,
     "verbose": True,
 }
@@ -70,7 +71,6 @@ def load_config(path):
     if path and os.path.exists(path):
         with open(path) as fh:
             cfg.update(json.load(fh))
-    # env overrides for secrets in deployment
     cfg["server_url"] = os.environ.get("GAUZY_URL", cfg["server_url"])
     cfg["email"] = os.environ.get("GAUZY_EMAIL", cfg["email"])
     cfg["password"] = os.environ.get("GAUZY_PASSWORD", cfg["password"])
@@ -82,11 +82,15 @@ def log(cfg, *args):
         print(f"[{datetime.now():%H:%M:%S}]", *args, flush=True)
 
 
+def tokens(s):
+    return {t for t in re.split(r"[^a-z0-9]+", (s or "").lower()) if len(t) >= 4}
+
+
 # --------------------------------------------------------------------------- #
 # /proc scanner
 # --------------------------------------------------------------------------- #
 
-_CLK_TCK = os.sysconf("SC_CLK_TCK")  # clock ticks per second (usually 100)
+_CLK_TCK = os.sysconf("SC_CLK_TCK")
 
 
 def _read(path):
@@ -98,44 +102,37 @@ def _read(path):
 
 
 def scan_proc():
-    """Return {pid: {"name": str, "cpu_ticks": int, "cmdline": str}} for
-    every live user process (kernel threads excluded)."""
     out = {}
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
         pid = entry
         cmdline_raw = _read(f"/proc/{pid}/cmdline")
-        # kernel threads have an empty cmdline — skip them
-        if not cmdline_raw:
+        if not cmdline_raw:  # kernel thread
             continue
         stat = _read(f"/proc/{pid}/stat")
         if not stat:
             continue
         try:
-            # comm is field 2, wrapped in parens and may contain spaces/parens;
-            # fields after the last ')' are space-separated.
             s = stat.decode("utf-8", "replace")
             rparen = s.rfind(")")
             comm = s[s.find("(") + 1:rparen]
             rest = s[rparen + 2:].split()
-            utime = int(rest[11])  # field 14 overall (0-indexed here 11)
-            stime = int(rest[12])  # field 15
+            utime = int(rest[11])
+            stime = int(rest[12])
         except (ValueError, IndexError):
             continue
         cmdline = cmdline_raw.replace(b"\x00", b" ").decode("utf-8", "replace").strip()
-        # Prefer the real basename from cmdline when comm is truncated (comm caps at 15 chars)
         name = comm
         if cmdline:
-            first = cmdline.split(" ")[0]
-            base = os.path.basename(first)
+            base = os.path.basename(cmdline.split(" ")[0])
             if base and not base.startswith("["):
                 name = base or comm
-        out[pid] = {"name": name, "cpu_ticks": utime + stime, "cmdline": cmdline[:200]}
+        out[pid] = {"name": name, "cpu_ticks": utime + stime}
     return out
 
 
-def compile_watchlist(patterns):
+def compile_patterns(patterns):
     return [re.compile(p, re.IGNORECASE) for p in patterns]
 
 
@@ -143,32 +140,73 @@ def match(name, compiled):
     return any(rx.search(name) for rx in compiled)
 
 
-def diff_processes(prev, curr, interval, cfg, compiled, excluded):
-    """Compare two /proc snapshots taken `interval` seconds apart and return a
-    list of {name, cpu_percent} for processes to report this interval."""
-    agg = {}  # name -> cpu_ticks delta
+# --------------------------------------------------------------------------- #
+# Focused window (GNOME D-Bus) — foreground time + active browser tab
+# --------------------------------------------------------------------------- #
+
+def get_focused():
+    """Return (wm_class, title) of the focused window, or (None, None).
+    Needs the 'Focused Window D-Bus' GNOME extension.
+
+    Uses busctl's --json mode: the plain output escapes non-ASCII title bytes
+    as octal (\\NNN), which is not valid JSON. --json=short returns the D-Bus
+    string (itself a JSON document) as properly-escaped, UTF-8-safe data."""
+    try:
+        r = subprocess.run(
+            ["busctl", "--json=short", "--user", "call", "org.gnome.Shell",
+             "/org/gnome/shell/extensions/FocusedWindow",
+             "org.gnome.shell.extensions.FocusedWindow", "Get"],
+            capture_output=True, text=True, timeout=4,
+        )
+        outer = json.loads(r.stdout)          # {"type":"s","data":["{...json...}"]}
+        payload = outer.get("data")
+        if isinstance(payload, list):
+            payload = payload[0]
+        data = json.loads(payload)            # the actual window object
+        return ((data.get("wm_class") or "").lower() or None, data.get("title") or None)
+    except Exception:
+        return (None, None)
+
+
+def clean_tab_title(title, browsers):
+    """Strip the trailing ' - Google Chrome' / ' — Mozilla Firefox' suffix so we
+    keep just the page/tab name."""
+    if not title:
+        return None
+    t = re.sub(r"\s*[-–—]\s*(Google Chrome|Chromium|Mozilla Firefox|Microsoft Edge"
+               r"|Brave|Opera)\s*$", "", title).strip()
+    return t or None
+
+
+# --------------------------------------------------------------------------- #
+# Build the per-interval report
+# --------------------------------------------------------------------------- #
+
+def build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds):
+    """[{name, cpu_percent, foreground_seconds}] for reportable processes.
+    fg_seconds: focused-wm_class -> seconds on screen this interval."""
+    agg = {}
     for pid, info in curr.items():
         name = info["name"]
-        # a process running the whole interval counts; new ones count too
         prev_ticks = prev.get(pid, {}).get("cpu_ticks", info["cpu_ticks"])
-        delta = max(0, info["cpu_ticks"] - prev_ticks)
         agg.setdefault(name, 0)
-        agg[name] += delta
+        agg[name] += max(0, info["cpu_ticks"] - prev_ticks)
 
     rows = []
     for name, ticks in agg.items():
-        # noise filter first — helper/sandbox processes are never reported
         if excluded and match(name, excluded):
             continue
-        cpu_percent = (ticks / _CLK_TCK) / interval * 100.0
+        cpu = (ticks / _CLK_TCK) / interval * 100.0
         if compiled:
             if not match(name, compiled):
                 continue
-        else:
-            if cpu_percent < cfg["cpu_min_percent"]:
-                continue
-        rows.append({"name": name, "cpu_percent": round(cpu_percent, 1)})
-    rows.sort(key=lambda r: r["cpu_percent"], reverse=True)
+        elif cpu < cfg["cpu_min_percent"]:
+            continue
+        name_tokens = tokens(name)
+        fg = sum(secs for wm, secs in fg_seconds.items() if name_tokens & tokens(wm))
+        rows.append({"name": name, "cpu_percent": round(cpu, 1),
+                     "foreground_seconds": min(interval, fg)})
+    rows.sort(key=lambda r: (r["foreground_seconds"], r["cpu_percent"]), reverse=True)
     return rows[: cfg["max_processes"]]
 
 
@@ -181,9 +219,7 @@ class GauzyClient:
         self.base = cfg["server_url"].rstrip("/")
         self.cfg = cfg
         self.token = None
-        self.employee_id = None
-        self.organization_id = None
-        self.tenant_id = None
+        self.employee_id = self.organization_id = self.tenant_id = None
         self._ctx = ssl.create_default_context()
 
     def _request(self, method, path, body=None, auth=True):
@@ -212,56 +248,40 @@ class GauzyClient:
     def login(self):
         status, data = self._request(
             "POST", "/api/auth/login",
-            {"email": self.cfg["email"], "password": self.cfg["password"]},
-            auth=False,
-        )
+            {"email": self.cfg["email"], "password": self.cfg["password"]}, auth=False)
         if status != 200 or not data.get("token"):
             raise RuntimeError(f"login failed (HTTP {status}): {data.get('message', data)}")
         self.token = data["token"]
-        user = data.get("user", {})
-        emp = user.get("employee") or {}
+        emp = (data.get("user", {}).get("employee") or {})
         self.employee_id = emp.get("id")
         self.organization_id = emp.get("organizationId")
-        self.tenant_id = emp.get("tenantId") or user.get("tenantId")
+        self.tenant_id = emp.get("tenantId") or data.get("user", {}).get("tenantId")
         if not (self.employee_id and self.organization_id and self.tenant_id):
-            raise RuntimeError(
-                "login ok but this user has no employee record / org / tenant. "
-                "Use an account that is an Employee in an organization."
-            )
-        return user
+            raise RuntimeError("account has no employee/org/tenant; use an Employee account")
 
-    def post_time_slot(self, activities, started_at, duration, overall):
-        """activities: list of {name, cpu_percent}. Wraps them as APP activities
-        in a Gauzy time slot and posts it."""
+    def post_time_slot(self, proc_rows, tabs, started_at, duration):
+        """tabs: {title -> seconds_watched}."""
         date = started_at.strftime("%Y-%m-%d")
         tm = started_at.strftime("%H:%M:%S")
         recorded = started_at.isoformat()
-        acts = [
-            {
-                "title": a["name"],
-                "duration": duration,
-                "type": "APP",
-                "projectId": None,
-                "date": date,
-                "time": tm,
-                "recordedAt": recorded,
-                "organizationId": self.organization_id,
-                "employeeId": self.employee_id,
-                "metaData": [{"source": "system-tracker", "cpuPercent": a["cpu_percent"]}],
-            }
-            for a in activities
-        ]
+        base = {"projectId": None, "date": date, "time": tm, "recordedAt": recorded,
+                "organizationId": self.organization_id, "employeeId": self.employee_id}
+        acts = []
+        for r in proc_rows:
+            acts.append({**base, "title": r["name"], "duration": duration, "type": "APP",
+                         "metaData": [{"source": "system-tracker",
+                                       "cpuPercent": r["cpu_percent"],
+                                       "foregroundSeconds": r["foreground_seconds"],
+                                       "mode": "foreground" if r["foreground_seconds"] > 0 else "background"}]})
+        for title, secs in tabs.items():
+            acts.append({**base, "title": title, "duration": max(1, int(secs)), "type": "URL",
+                         "metaData": [{"source": "system-tracker", "watchedSeconds": secs}]})
+        overall = min(duration, max((r["foreground_seconds"] for r in proc_rows), default=0)) or 1
         payload = {
-            "tenantId": self.tenant_id,
-            "organizationId": self.organization_id,
-            "employeeId": self.employee_id,
-            "duration": duration,
-            "keyboard": 0,
-            "mouse": 0,
-            "overall": overall,
-            "startedAt": recorded,
-            "recordedAt": recorded,
-            "activities": acts,
+            "tenantId": self.tenant_id, "organizationId": self.organization_id,
+            "employeeId": self.employee_id, "duration": duration,
+            "keyboard": 0, "mouse": 0, "overall": overall,
+            "startedAt": recorded, "recordedAt": recorded, "activities": acts,
         }
         return self._request("POST", "/api/timesheet/time-slot", payload)
 
@@ -272,42 +292,53 @@ class GauzyClient:
 
 def main():
     cfg_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.json"
-    )
+        os.path.dirname(os.path.abspath(__file__)), "config.json")
     cfg = load_config(cfg_path)
-    compiled = compile_watchlist(cfg["watchlist"])
-    excluded = compile_watchlist(cfg.get("exclude", []))
+    compiled = compile_patterns(cfg["watchlist"])
+    excluded = compile_patterns(cfg.get("exclude", []))
     interval = cfg["interval_seconds"]
+    fsample = max(1, int(cfg.get("focus_sample_seconds", 5)))
+    browsers = [b.lower() for b in cfg.get("browsers", [])]
 
     client = GauzyClient(cfg)
-    log(cfg, f"Logging in to {cfg['server_url']} as {cfg['email']} ...")
-    user = client.login()
-    log(cfg, f"Authenticated. employee={client.employee_id[:8]} "
-             f"org={client.organization_id[:8]}")
-    log(cfg, f"Watchlist: {len(cfg['watchlist'])} patterns | interval {interval}s")
+    log(cfg, f"Login {cfg['server_url']} as {cfg['email']} ...")
+    client.login()
+    log(cfg, f"OK. employee={client.employee_id[:8]} | interval {interval}s, "
+             f"focus sample {fsample}s")
 
     prev = scan_proc()
     try:
         while True:
-            time.sleep(interval)
             started = datetime.now(timezone.utc)
+            fg_seconds = {}   # wm_class -> seconds focused
+            tabs = {}         # active browser tab title -> seconds watched
+            deadline = time.monotonic() + interval
+            while time.monotonic() < deadline:
+                time.sleep(fsample)
+                wm, title = get_focused()
+                if not wm:
+                    continue
+                fg_seconds[wm] = fg_seconds.get(wm, 0) + fsample
+                if any(b in wm for b in browsers):
+                    tab = clean_tab_title(title, browsers)
+                    if tab:
+                        tabs[tab] = tabs.get(tab, 0) + fsample
             curr = scan_proc()
-            rows = diff_processes(prev, curr, interval, cfg, compiled, excluded)
+            rows = build_process_rows(prev, curr, interval, cfg, compiled, excluded, fg_seconds)
             prev = curr
-            if not rows:
-                log(cfg, "no matching processes this interval")
+            if not rows and not tabs:
+                log(cfg, "nothing to report this interval")
                 continue
-            # overall "active" = sum of cpu across reported procs, capped at interval
-            active = min(interval, int(sum(r["cpu_percent"] for r in rows) / 100.0 * interval) or 1)
-            status, resp = client.post_time_slot(rows, started, interval, active)
-            names = ", ".join(f"{r['name']}({r['cpu_percent']}%)" for r in rows[:8])
+            status, resp = client.post_time_slot(rows, tabs, started, interval)
             if status in (200, 201):
-                log(cfg, f"pushed {len(rows)} procs -> {names}")
+                fg = [r for r in rows if r["foreground_seconds"] > 0]
+                watching = ", ".join(f"{r['name']}({r['foreground_seconds']}s)" for r in fg[:4]) or "-"
+                tabnames = ", ".join(f"{t}({s}s)" for t, s in list(tabs.items())[:3]) or "-"
+                log(cfg, f"pushed {len(rows)} apps (on-screen: {watching}) | tabs: {tabnames}")
             elif status == 401:
-                log(cfg, "token expired, re-login")
-                client.login()
+                log(cfg, "token expired, re-login"); client.login()
             else:
-                log(cfg, f"push failed HTTP {status}: {str(resp)[:160]}")
+                log(cfg, f"push failed HTTP {status}: {str(resp)[:150]}")
     except KeyboardInterrupt:
         log(cfg, "stopped")
 

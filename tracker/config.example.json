@@ -3,6 +3,8 @@
   "email": "admin@ever.co",
   "password": "admin",
   "interval_seconds": 60,
+  "focus_sample_seconds": 5,
+  "browsers": ["chrome", "chromium", "firefox", "edge", "brave", "opera"],
   "watchlist": [
     "code", "postman", "antigravity", "sublime", "idea", "pycharm",
     "gnome-terminal", "konsole", "xterm", "kitty", "alacritty",
