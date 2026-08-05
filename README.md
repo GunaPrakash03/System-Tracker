@@ -56,6 +56,9 @@ process tracker are combined, each doing what it does best.
 See [`docs/feasibility.md`](docs/feasibility.md) for the full assessment,
 including what is and isn't possible on Linux/Wayland and why.
 
+**Picking this up cold?** Start with [`docs/HANDOVER.md`](docs/HANDOVER.md) — current
+state, what the Xorg switch changed, the screenshot findings, and open next steps.
+
 ## Status
 
 Early — feasibility complete, implementation starting. This repo will hold the
