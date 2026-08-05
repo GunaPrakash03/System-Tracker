@@ -4,10 +4,19 @@
   "password": "admin",
   "interval_seconds": 60,
   "watchlist": [
-    "code", "postman", "antigravity", "node", "postgres",
-    "docker", "dockerd", "containerd", "nginx", "python",
-    "php", "redis", "mysql", "mariadb", "java", "ruby",
-    "go$", "chrome", "firefox", "spotify"
+    "code", "postman", "antigravity", "sublime", "idea", "pycharm",
+    "gnome-terminal", "konsole", "xterm", "kitty", "alacritty",
+    "tilix", "terminator", "terminal",
+    "^bash$", "^zsh$", "^fish$", "tmux", "screen$",
+    "vim", "nvim", "nano", "emacs", "htop", "ssh",
+    "node", "postgres", "docker", "dockerd", "containerd",
+    "nginx", "python", "php", "redis", "mysql", "mariadb",
+    "java", "ruby", "go$",
+    "chrome", "firefox", "spotify"
+  ],
+  "exclude": [
+    "sandbox", "crashpad", "crash.?handler", "-helper",
+    "gpu.?process", "utility", "zygote", "broker"
   ],
   "cpu_min_percent": 1.0,
   "max_processes": 40,

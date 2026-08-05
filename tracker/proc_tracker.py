@@ -36,10 +36,25 @@ DEFAULT_CONFIG = {
     # (case-insensitive regex). Empty list => report every user process
     # above cpu_min_percent. Kernel threads are always skipped.
     "watchlist": [
-        r"code", r"postman", r"antigravity", r"node", r"postgres",
-        r"docker", r"dockerd", r"containerd", r"nginx", r"python",
-        r"php", r"redis", r"mysql", r"mariadb", r"java", r"ruby",
-        r"go$", r"chrome", r"firefox", r"spotify",
+        # editors / dev tools
+        r"code", r"postman", r"antigravity", r"sublime", r"idea", r"pycharm",
+        # terminals + shells + terminal tools
+        r"gnome-terminal", r"konsole", r"xterm", r"kitty", r"alacritty",
+        r"tilix", r"terminator", r"terminal",
+        r"^bash$", r"^zsh$", r"^fish$", r"tmux", r"screen$",
+        r"vim", r"nvim", r"nano", r"emacs", r"htop", r"ssh",
+        # runtimes / backends
+        r"node", r"postgres", r"docker", r"dockerd", r"containerd",
+        r"nginx", r"python", r"php", r"redis", r"mysql", r"mariadb",
+        r"java", r"ruby", r"go$",
+        # browsers / media
+        r"chrome", r"firefox", r"spotify",
+    ],
+    # Processes matching any of these are ALWAYS skipped, even if they match the
+    # watchlist — filters out helper/sandbox noise (e.g. chrome-sandbox).
+    "exclude": [
+        r"sandbox", r"crashpad", r"crash.?handler", r"-helper",
+        r"gpu.?process", r"utility", r"zygote", r"broker",
     ],
     # If watchlist is empty, only report processes using at least this much
     # CPU in the interval (percent of one core). Ignored when watchlist is set.
@@ -128,7 +143,7 @@ def match(name, compiled):
     return any(rx.search(name) for rx in compiled)
 
 
-def diff_processes(prev, curr, interval, cfg, compiled):
+def diff_processes(prev, curr, interval, cfg, compiled, excluded):
     """Compare two /proc snapshots taken `interval` seconds apart and return a
     list of {name, cpu_percent} for processes to report this interval."""
     agg = {}  # name -> cpu_ticks delta
@@ -142,6 +157,9 @@ def diff_processes(prev, curr, interval, cfg, compiled):
 
     rows = []
     for name, ticks in agg.items():
+        # noise filter first — helper/sandbox processes are never reported
+        if excluded and match(name, excluded):
+            continue
         cpu_percent = (ticks / _CLK_TCK) / interval * 100.0
         if compiled:
             if not match(name, compiled):
@@ -258,6 +276,7 @@ def main():
     )
     cfg = load_config(cfg_path)
     compiled = compile_watchlist(cfg["watchlist"])
+    excluded = compile_watchlist(cfg.get("exclude", []))
     interval = cfg["interval_seconds"]
 
     client = GauzyClient(cfg)
@@ -273,7 +292,7 @@ def main():
             time.sleep(interval)
             started = datetime.now(timezone.utc)
             curr = scan_proc()
-            rows = diff_processes(prev, curr, interval, cfg, compiled)
+            rows = diff_processes(prev, curr, interval, cfg, compiled, excluded)
             prev = curr
             if not rows:
                 log(cfg, "no matching processes this interval")
