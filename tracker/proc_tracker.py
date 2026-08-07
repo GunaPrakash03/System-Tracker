@@ -40,6 +40,7 @@ import ssl
 import subprocess
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import datetime, timezone
 
 # --------------------------------------------------------------------------- #
@@ -75,6 +76,29 @@ DEFAULT_CONFIG = {
     "max_processes": 40,
     "verbose": True,
 
+    # ----- Timer / continuous tracking ------------------------------------- #
+    # Keep a tracking timer running for the tracker's lifetime, so posted slots
+    # attach to a same-day TimeLog and actually appear in the dashboard's
+    # activity/screenshot views. The official desktop agent does the same.
+    "maintain_timer": True,
+    "timer_source": "DESKTOP",
+    # Continuous, non-stoppable tracking: re-assert the timer every interval, so
+    # if it is stopped/paused from the dashboard it resumes within one interval;
+    # and do NOT stop it when the tracker exits, so a service restart leaves
+    # tracking running. Together these make tracking start at login and run
+    # unbroken until the machine is shut down.
+    "enforce_timer": True,
+    "stop_timer_on_exit": False,
+
+    # ----- Timestamps ------------------------------------------------------- #
+    # Store UTC (the correct, standard choice) and let Gauzy convert for display.
+    # To make the dashboard show the machine's wall-clock time, set the ORG
+    # timezone to match the machine (Settings -> Organizations -> Edit ->
+    # timezone, e.g. Asia/Kolkata) — do NOT fake local time into the timestamp,
+    # which breaks once the org timezone differs from the machine. Set true only
+    # if you deliberately want naive local timestamps regardless of the org tz.
+    "use_local_time": False,
+
     # ----- Active vs idle time --------------------------------------------- #
     # The system counts as ACTIVE for a moment if EITHER the user gave input
     # recently (keyboard/mouse) OR audio/video is playing. If neither is true
@@ -87,7 +111,65 @@ DEFAULT_CONFIG = {
     # Idle detection uses GNOME's Mutter IdleMonitor (works on Wayland & X11);
     # audio detection reads /proc/asound stream state (no external tools).
     "idle_threshold_seconds": 180,      # 3 min of no input & no audio => idle
-    "count_audio_as_active": True,      # background video/music keeps it active
+    # Whether media alone is enough to count as active. TRUE (the default) means
+    # background video/music keeps the machine active. Set FALSE — or override it
+    # per employee — and media playing with no keyboard/mouse counts as IDLE,
+    # which is what an admin wants for staff who leave Spotify or YouTube running
+    # while away from the desk. Real input always wins either way; this decides
+    # only whether *media on its own* is enough.
+    "count_audio_as_active": True,
+
+    # ----- Per-employee overrides ------------------------------------------- #
+    # Settings the super admin sets PER EMPLOYEE rather than in this file.
+    # Gauzy has no per-employee field for either of the settings below — its
+    # screenshotFrequency is organisation-wide — so the values come from a
+    # settings surface outside the employee record.
+    #   "config" : no remote lookup; every value comes from this file. Default,
+    #              and byte-for-byte the old behaviour.
+    #   "url"    : GET `settings_url` and let it override. Any service that
+    #              answers JSON works, so this does NOT commit us to extending
+    #              Gauzy versus running a small separate admin page.
+    "settings_source": "config",
+    "settings_url": "",
+    "settings_refresh_seconds": 60,     # how fast an admin's change takes effect
+
+    # ----- Screenshots ------------------------------------------------------ #
+    # Off by default: capturing someone's screen is a policy decision, not a
+    # default. When on, one screenshot per interval is taken and attached to
+    # that interval's time slot.
+    "capture_screenshots": False,
+    "screenshot_timeout_seconds": 20,   # give up if capture does not answer
+    # How often to capture, independent of the process-scan interval. 0 keeps
+    # the old behaviour of one shot per interval. Overridable per employee, so
+    # one user can be on 1 min and another on 5. Rounded UP to a whole number of
+    # scan intervals — see the cadence note in main() for why it cannot be
+    # faster than, or out of step with, the slot interval.
+    "screenshot_interval_seconds": 0,
+    # Where the screenshot on/off switch lives:
+    #   "dashboard" : the employee's "Allow Screen Capture" toggle in Gauzy
+    #                 (Employees -> employee -> Edit -> Settings) is the live
+    #                 control. An admin turns capture on/off there, no config
+    #                 edit or restart needed. `capture_screenshots` is then just
+    #                 a master enable that must also be true.
+    #   "config"    : ignore the dashboard flag; `capture_screenshots` alone
+    #                 decides (old behaviour).
+    "screenshot_gate": "dashboard",
+    # How often to re-read the dashboard toggle, so a change there takes effect
+    # within this many seconds.
+    "screenshot_gate_refresh_seconds": 30,
+    # How to capture (all Wayland-native, no Xorg). Two silent routes and one
+    # that flashes:
+    #   "auto"      : extension -> gnome -> portal. Prefers the durable silent
+    #                 route, then the no-setup silent route, flashing only if
+    #                 neither is available. Recommended default.
+    #   "extension" : in-process GNOME Shell extension only — SILENT and most
+    #                 durable; needs a one-time install + logout. Skips the shot
+    #                 rather than flash if the extension is not loaded.
+    #   "gnome"     : DeskTime-style — own org.gnome.Screenshot, call
+    #                 Shell.Screenshot(flash=false). SILENT, no install/logout;
+    #                 relies on GNOME's sender allowlist.
+    #   "portal"    : xdg-desktop-portal only — needs nothing, but FLASHES.
+    "screenshot_method": "auto",
 }
 
 
@@ -105,6 +187,78 @@ def load_config(path):
 def log(cfg, *args):
     if cfg.get("verbose"):
         print(f"[{datetime.now():%H:%M:%S}]", *args, flush=True)
+
+
+# --------------------------------------------------------------------------- #
+# Per-employee settings
+#
+# Some settings belong to the employee, not to the machine: how often to
+# screenshot them, and whether background media counts as idle for them. Gauzy
+# stores neither per employee, so they come from a settings surface of the
+# organisation's choosing.
+#
+# Deliberately indifferent to WHICH surface that is. Point `settings_url` at a
+# field added to a Gauzy fork, or at a small separate admin app, and the tracker
+# behaves the same — the choice between those is a deployment decision, and
+# hard-coding either one here would make it expensive to change later. Left at
+# "config" the tracker never makes the call at all.
+# --------------------------------------------------------------------------- #
+
+_settings_cache = None      # (dict, monotonic_time)
+
+
+def fetch_employee_settings(cfg, employee_id):
+    """This employee's admin-set overrides, or {} when no remote source is
+    configured.
+
+    Cached for `settings_refresh_seconds` so an admin's change lands within that
+    window with no restart — the same live-control pattern the screenshot toggle
+    already uses. A failed fetch returns the LAST KNOWN values rather than {}:
+    dropping back to the config defaults would silently re-enable screenshots or
+    flip someone's idle rule the moment the settings service hiccuped, which is
+    a worse failure than briefly stale settings."""
+    global _settings_cache
+    if (cfg.get("settings_source") or "config").lower() != "url":
+        return {}
+    url = (cfg.get("settings_url") or "").strip()
+    if not url:
+        return {}
+    ttl = max(1, int(cfg.get("settings_refresh_seconds", 60)))
+    now = time.monotonic()
+    if _settings_cache and (now - _settings_cache[1]) < ttl:
+        return _settings_cache[0]
+    sep = "&" if "?" in url else "?"
+    try:
+        req = urllib.request.Request(
+            f"{url}{sep}employeeId={urllib.parse.quote(str(employee_id))}",
+            headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace") or "{}")
+    except Exception:
+        return _settings_cache[0] if _settings_cache else {}
+    if not isinstance(data, dict):
+        return _settings_cache[0] if _settings_cache else {}
+    _settings_cache = (data, now)
+    return data
+
+
+def setting(cfg, overrides, key, default=None):
+    """Resolve one setting: the per-employee override wins, then config.json,
+    then `default`. A null in the override means "no opinion, use the config" —
+    so an admin form can leave a field blank without it reading as False."""
+    if isinstance(overrides, dict) and overrides.get(key) is not None:
+        return overrides[key]
+    return cfg.get(key, default)
+
+
+def now_ts(cfg):
+    """The timestamp the tracker records with. Default: the system's local
+    wall-clock time (naive), so the dashboard matches the machine's clock. With
+    use_local_time false, UTC instead. Returned naive either way — the value is
+    sent as-is, so the dashboard shows exactly this time, no re-offsetting."""
+    if cfg.get("use_local_time", True):
+        return datetime.now()                        # local wall clock
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def tokens(s):
@@ -420,13 +574,351 @@ def is_audio_playing():
     return False
 
 
-def is_active_now(cfg):
-    """Decide if this instant is active: recent input OR audio playing."""
+def is_active_now(cfg, overrides=None):
+    """Decide if this instant is active: recent input OR audio playing.
+
+    `count_audio_as_active` is resolved per employee, so the same build can
+    treat background media as active for one user and as IDLE for another. When
+    it is off, media playing with nobody at the keyboard counts as idle — the
+    Spotify-left-running case. Real input still wins regardless.
+
+    `media_playing` is reported separately from `audio` on purpose: `audio` is
+    "media counted towards active", which goes into the posted payload, while
+    `media_playing` is the raw fact. With media-as-idle enabled the two diverge,
+    and the log needs the raw fact to explain WHY an interval reads idle while
+    music is audible."""
     idle = get_idle_seconds()
     recent_input = (idle is not None) and (idle < cfg["idle_threshold_seconds"])
-    audio = cfg.get("count_audio_as_active", True) and is_audio_playing()
+    playing = is_audio_playing()
+    audio = bool(setting(cfg, overrides, "count_audio_as_active", True)) and playing
     return recent_input or audio, {"idle_s": idle, "audio": audio,
+                                   "media_playing": playing,
                                    "recent_input": recent_input}
+
+
+# --------------------------------------------------------------------------- #
+# Screenshots — silent capture on Wayland (no Xorg anywhere)
+#
+# X11 capture is dead on this Wayland session (XGetImage on XWayland's
+# unredirected root -> BadMatch), so all routes are Wayland-native GNOME:
+#
+#   gnome     : own the allowlisted org.gnome.Screenshot bus name, then call
+#               Shell.Screenshot(cursor=false, FLASH=false, path). This is
+#               exactly what DeskTime does on Wayland+GNOME. SILENT, and needs
+#               no install and no logout — but leans on GNOME's sender
+#               allowlist, which GNOME may tighten in a future release.
+#   extension : the in-process Shell extension calls Shell.Screenshot directly,
+#               not subject to the allowlist. SILENT and the most durable, but
+#               needs a one-time install + logout to load.
+#   portal    : xdg-desktop-portal. Works with nothing installed, but GNOME's
+#               portal always FLASHES the screen. Not silent — last resort.
+#
+# 'auto' prefers the durable extension, then falls back to the DeskTime-style
+# gnome trick (so capture is silent and immediate before the extension is
+# installed), and never silently falls back to the flashing portal.
+# --------------------------------------------------------------------------- #
+
+_portal_state = None      # (Gio, GLib, bus) once initialised; False if N/A
+_portal_seq = 0           # unique handle_token per request
+_gnome_name_owned = None  # bus-name owner id once org.gnome.Screenshot is held
+
+
+def _portal_init():
+    """Open the session bus once, lazily. False if python3-gi is unavailable.
+
+    python3-gi is a system package (preinstalled on Ubuntu GNOME), not a pip
+    dependency — it is the one non-stdlib import in this file, and it is
+    imported here rather than at module scope so the tracker still runs, minus
+    screenshots, on a box without it."""
+    global _portal_state
+    if _portal_state is not None:
+        return _portal_state
+    _portal_state = False
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    except Exception:
+        return _portal_state
+    _portal_state = (Gio, GLib, bus)
+    return _portal_state
+
+
+_GNOME_NAME = "org.gnome.Screenshot"
+
+
+def _own_gnome_name():
+    """Acquire the org.gnome.Screenshot bus name and hold it for the process
+    lifetime. GNOME Shell's Screenshot service only accepts callers that own a
+    name on its allowlist, and org.gnome.Screenshot is on it — this is the same
+    identity DeskTime's bundled gnome-screenshot fork registers under. Returns
+    True if the name is (being) held. Best-effort and idempotent."""
+    global _gnome_name_owned
+    if _gnome_name_owned is not None:
+        return True
+    state = _portal_init()
+    if not state:
+        return False
+    Gio, GLib, bus = state
+    try:
+        # NONE (not REPLACE): if gnome-screenshot/DeskTime already own the name,
+        # we do not fight them — capture just falls back to another route.
+        _gnome_name_owned = Gio.bus_own_name_on_connection(
+            bus, _GNOME_NAME, Gio.BusNameOwnerFlags.NONE, None, None)
+        return True
+    except Exception:
+        _gnome_name_owned = None
+        return False
+
+
+def _capture_via_gnome(cfg):
+    """PNG bytes via the DeskTime-style route — SILENT. Owns the allowlisted
+    org.gnome.Screenshot name, then calls Shell.Screenshot with flash=false so
+    there is no flash, no shutter sound, and no notification. None if the call
+    is refused (e.g. a future GNOME drops the name from its allowlist) or the
+    capture fails."""
+    if not _own_gnome_name():
+        return None
+    global _portal_seq
+    Gio, GLib, bus = _portal_state
+    _portal_seq += 1
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    path = os.path.join(runtime, f"st-gshot-{os.getpid()}-{_portal_seq}.png")
+    timeout_ms = max(1, int(cfg.get("screenshot_timeout_seconds", 20))) * 1000
+    try:
+        reply = bus.call_sync(
+            "org.gnome.Shell.Screenshot", "/org/gnome/Shell/Screenshot",
+            "org.gnome.Shell.Screenshot", "Screenshot",
+            GLib.Variant("(bbs)", (False, False, path)),  # include_cursor, FLASH, file
+            GLib.VariantType("(bs)"), Gio.DBusCallFlags.NONE, timeout_ms, None)
+        ok = reply.unpack()[0]
+    except Exception:
+        return None
+    data = None
+    if ok:
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            data = None
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    return data or None
+
+
+def gnome_capture_available():
+    """True if the DeskTime-style route can actually capture — verified by a
+    real (silent) test shot, since owning the name does not guarantee the Shell
+    still honours it. The probe image is discarded."""
+    return _capture_via_gnome({"screenshot_timeout_seconds": 5}) is not None
+
+
+_EXT_OBJECT = "/org/gnome/Shell/Extensions/SystemTrackerShot"
+_EXT_IFACE = "org.gnome.Shell.Extensions.SystemTrackerShot"
+
+
+def extension_available():
+    """True if the System-Tracker Shell extension is loaded and answering.
+
+    Introspecting its object path is cheap and, unlike calling CaptureToFile,
+    does not take a screenshot just to probe."""
+    state = _portal_init()
+    if not state:
+        return False
+    Gio, GLib, bus = state
+    try:
+        # gnome-shell answers Introspect for ANY path under org.gnome.Shell
+        # with an empty node, so success alone is not proof — the XML must
+        # actually declare our interface for the object to really be exported.
+        reply = bus.call_sync("org.gnome.Shell", _EXT_OBJECT,
+                              "org.freedesktop.DBus.Introspectable", "Introspect",
+                              None, GLib.VariantType("(s)"),
+                              Gio.DBusCallFlags.NONE, 3000, None)
+        return _EXT_IFACE in reply.unpack()[0]
+    except Exception:
+        return False
+
+
+def _capture_via_extension(cfg):
+    """PNG bytes via the in-process GNOME Shell extension — fully SILENT.
+
+    The extension calls Shell.Screenshot inside the shell, so there is no
+    flash, no shutter sound, and no notification. We hand it a path to write,
+    then read and delete that file. None if the extension is not loaded or the
+    capture fails."""
+    global _portal_seq
+    state = _portal_init()
+    if not state:
+        return None
+    Gio, GLib, bus = state
+    _portal_seq += 1
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    path = os.path.join(runtime, f"st-shot-{os.getpid()}-{_portal_seq}.png")
+    timeout_ms = max(1, int(cfg.get("screenshot_timeout_seconds", 20))) * 1000
+    try:
+        reply = bus.call_sync("org.gnome.Shell", _EXT_OBJECT, _EXT_IFACE,
+                              "CaptureToFile", GLib.Variant("(s)", (path,)),
+                              GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE,
+                              timeout_ms, None)
+        ok = reply.unpack()[0]
+    except Exception:
+        return None
+    data = None
+    if ok:
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            data = None
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    return data or None
+
+
+def capture_screenshot(cfg):
+    """PNG bytes of the whole screen, or None if capture is unavailable.
+
+    Route is chosen by `screenshot_method` (see the section banner above):
+      * extension — in-process Shell extension. Silent, most durable.
+      * gnome     — DeskTime-style org.gnome.Screenshot trick. Silent, no setup.
+      * portal    — xdg-desktop-portal. Works everywhere but FLASHES.
+      * auto      — extension -> gnome -> portal, preferring the durable silent
+                    route, then the no-setup silent route, and only flashing if
+                    neither is available.
+
+    A fixed method uses that route only; the two silent methods never fall back
+    to the flashing portal, so 'silent' stays a guarantee, not a preference."""
+    method = (cfg.get("screenshot_method") or "auto").lower()
+
+    if method == "portal":
+        return _capture_via_portal(cfg)
+    if method == "extension":
+        return _capture_via_extension(cfg)          # silent or nothing
+    if method == "gnome":
+        return _capture_via_gnome(cfg)              # silent or nothing
+
+    # auto: prefer the durable silent route, then the no-setup silent route,
+    # and only then the flashing portal.
+    data = _capture_via_extension(cfg)
+    if data is not None:
+        return data
+    data = _capture_via_gnome(cfg)
+    if data is not None:
+        return data
+    return _capture_via_portal(cfg)
+
+
+def _capture_via_portal(cfg):
+    """PNG bytes via xdg-desktop-portal's Screenshot interface. NOT silent on
+    GNOME — the portal flashes the screen. `interactive: false` is answered
+    without a consent dialog on GNOME 46; the portal picks its own output path,
+    which we read and then delete so nothing accumulates in ~/Pictures."""
+    global _portal_seq
+    state = _portal_init()
+    if not state:
+        return None
+    Gio, GLib, bus = state
+    _portal_seq += 1
+    token = f"system_tracker_{os.getpid()}_{_portal_seq}"
+    sender = bus.get_unique_name()[1:].replace(".", "_")
+    handle = f"/org/freedesktop/portal/desktop/request/{sender}/{token}"
+
+    loop = GLib.MainLoop()
+    result = {}
+    subs = []
+    timer = None
+
+    def on_response(_conn, _sender, _path, _iface, _signal, params):
+        code, res = params.unpack()
+        result["code"] = code
+        result["uri"] = res.get("uri")
+        loop.quit()
+
+    def subscribe(path):
+        subs.append(bus.signal_subscribe(
+            "org.freedesktop.portal.Desktop", "org.freedesktop.portal.Request",
+            "Response", path, None, Gio.DBusSignalFlags.NONE, on_response))
+
+    # Subscribe BEFORE calling: the portal may answer before the call returns.
+    subscribe(handle)
+    try:
+        opts = GLib.Variant("a{sv}", {
+            "handle_token": GLib.Variant("s", token),
+            "interactive": GLib.Variant("b", False),
+        })
+        reply = bus.call_sync(
+            "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Screenshot", "Screenshot",
+            GLib.Variant.new_tuple(GLib.Variant.new_string(""), opts), None,
+            Gio.DBusCallFlags.NONE, 10000, None)
+        actual = reply.unpack()[0]
+        if actual != handle:        # older portals hand back a different path
+            subscribe(actual)
+        timer = GLib.timeout_add_seconds(
+            max(1, int(cfg.get("screenshot_timeout_seconds", 20))),
+            lambda: (result.setdefault("code", -1), loop.quit())[1])
+        loop.run()
+    except Exception:
+        return None
+    finally:
+        # The timer outlives the loop when the response arrives first. Left
+        # registered, it would fire inside the NEXT capture's main loop and
+        # quit it before the portal answers, so every second shot would fail.
+        if timer is not None:
+            try:
+                GLib.source_remove(timer)   # already gone if it was the timer that fired
+            except Exception:
+                pass
+        for sub in subs:
+            bus.signal_unsubscribe(sub)
+
+    if result.get("code") != 0 or not result.get("uri"):
+        return None
+    path = _uri_to_path(result["uri"])
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    try:
+        os.unlink(path)
+    except OSError:
+        pass                        # not ours to insist on; the bytes are what matter
+    return data or None
+
+
+def _uri_to_path(uri):
+    """'file:///home/x/Screenshot.png' -> '/home/x/Screenshot.png'."""
+    if not uri or not uri.startswith("file://"):
+        return None
+    return urllib.parse.unquote(uri[len("file://"):])
+
+
+def _multipart_body(fields, file_field, filename, mimetype, content):
+    """Encode a multipart/form-data body by hand — returns (bytes, content_type).
+
+    Stdlib has no multipart encoder, and this is the only place we need one."""
+    boundary = "----SystemTracker" + os.urandom(12).hex()
+    parts = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n'
+            f"{value}\r\n".encode())
+    parts.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; '
+        f'filename="{filename}"\r\nContent-Type: {mimetype}\r\n\r\n'.encode())
+    parts.append(content)
+    parts.append(f"\r\n--{boundary}--\r\n".encode())
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
 # --------------------------------------------------------------------------- #
@@ -503,13 +995,18 @@ class GauzyClient:
         self.cfg = cfg
         self.token = None
         self.employee_id = self.organization_id = self.tenant_id = None
+        self.time_log_id = None
         self._ctx = ssl.create_default_context()
 
-    def _request(self, method, path, body=None, auth=True):
+    def _request(self, method, path, body=None, auth=True, raw=None, content_type=None):
+        """raw/content_type bypass the JSON encoding — used for file uploads."""
         url = f"{self.base}{path}"
-        data = json.dumps(body).encode() if body is not None else None
+        if raw is not None:
+            data = raw
+        else:
+            data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", content_type or "application/json")
         req.add_header("Accept", "application/json")
         if auth and self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
@@ -541,6 +1038,89 @@ class GauzyClient:
         self.tenant_id = emp.get("tenantId") or data.get("user", {}).get("tenantId")
         if not (self.employee_id and self.organization_id and self.tenant_id):
             raise RuntimeError("account has no employee/org/tenant; use an Employee account")
+
+    _shot_flag_cache = None      # (value, monotonic_time) for the dashboard toggle
+
+    def screenshots_enabled(self):
+        """Whether screenshots are turned on for this employee IN THE DASHBOARD
+        — the `allowScreenshotCapture` flag that Employees -> employee -> Edit ->
+        Settings -> 'Allow Screen Capture' writes. This is the live on/off
+        switch: an admin flips it in Gauzy and the tracker obeys, no restart.
+
+        Cached for `screenshot_gate_refresh_seconds` so we do not GET the
+        employee every capture. On a read failure we keep the last known value
+        (fail-safe to whatever it was), or default to False if never read."""
+        ttl = max(1, int(self.cfg.get("screenshot_gate_refresh_seconds", 30)))
+        now = time.monotonic()
+        cache = GauzyClient._shot_flag_cache
+        if cache and (now - cache[1]) < ttl:
+            return cache[0]
+        status, data = self._request("GET", f"/api/employee/{self.employee_id}")
+        if status in (200, 201) and isinstance(data, dict) and "allowScreenshotCapture" in data:
+            val = bool(data["allowScreenshotCapture"])
+            GauzyClient._shot_flag_cache = (val, now)
+            return val
+        # Could not read — keep the last known value rather than flapping.
+        return cache[0] if cache else False
+
+    def start_timer(self):
+        """Start a tracking timer, creating a running TimeLog the posted slots
+        attach to. Without this, slots exist but the dashboard's activity and
+        screenshot views — which are scoped to a same-day TimeLog — never show
+        them. This is what the official desktop agent does at timer start.
+
+        Idempotent-ish: if a timer is already running for this employee, Gauzy
+        returns the existing running log rather than erroring."""
+        status, data = self._request("POST", "/api/timesheet/timer/start", {
+            "organizationId": self.organization_id, "tenantId": self.tenant_id,
+            "source": self.cfg.get("timer_source", "DESKTOP"),
+            "logType": "TRACKED", "isBillable": True})
+        if status in (200, 201) and isinstance(data, dict):
+            self.time_log_id = data.get("id")
+            return True
+        # Already running (or transient) — fall back to the current status.
+        s2, d2 = self._request("GET", "/api/timesheet/timer/status")
+        if s2 in (200, 201) and isinstance(d2, dict):
+            self.time_log_id = (d2.get("lastLog") or {}).get("id") or d2.get("id")
+            return bool(self.time_log_id)
+        return False
+
+    def stop_timer(self):
+        """Stop the tracking timer (best effort — never raises)."""
+        try:
+            self._request("POST", "/api/timesheet/timer/stop", {
+                "organizationId": self.organization_id, "tenantId": self.tenant_id,
+                "source": self.cfg.get("timer_source", "DESKTOP"),
+                "logType": "TRACKED"})
+        except Exception:
+            pass
+
+    def timer_running(self):
+        """True if a timer is currently running for this employee, per the
+        server. None if the status could not be read."""
+        src = self.cfg.get("timer_source", "DESKTOP")
+        path = (f"/api/timesheet/timer/status?source={src}"
+                f"&organizationId={self.organization_id}"
+                f"&tenantId={self.tenant_id}")
+        status, data = self._request("GET", path)
+        if status in (200, 201) and isinstance(data, dict):
+            return bool(data.get("running"))
+        return None
+
+    def ensure_timer(self):
+        """Guarantee a timer is running — restart it if it was stopped or paused
+        (e.g. from the dashboard). This is what makes tracking non-stoppable:
+        any stop is undone on the next interval. Returns True if running.
+
+        Only acts when the status says NOT running, so a healthy timer is left
+        untouched and no duplicate logs are created."""
+        running = self.timer_running()
+        if running:
+            return True
+        # running is False (stopped from the dashboard) or None (status
+        # unreadable) — (re)start to be safe. start_timer reuses an existing
+        # running log if there is one, so this cannot double-start.
+        return self.start_timer()
 
     def post_time_slot(self, proc_rows, tabs, started_at, duration,
                         active_seconds, audio_seconds):
@@ -586,10 +1166,89 @@ class GauzyClient:
         }
         return self._request("POST", "/api/timesheet/time-slot", payload)
 
+    def post_screenshot(self, png, recorded_at, time_slot_id=None):
+        """Upload one screenshot and attach it to a time slot.
+
+        The file field MUST be named `file` — the server's upload interceptor
+        looks for exactly that and silently returns nothing otherwise. The
+        server derives userId from the token and builds the thumbnail itself.
+
+        `timeSlotId` is what binds the image to a slot; the column is nullable,
+        so without it the upload still succeeds but the screenshot sits
+        unattached and does not appear against the slot in
+        Employees -> Activity -> Screenshots."""
+        fields = {
+            "organizationId": self.organization_id,
+            "tenantId": self.tenant_id,
+            "recordedAt": recorded_at.isoformat(),
+            "timeSlotId": time_slot_id,
+        }
+        body, content_type = _multipart_body(fields, "file", "screenshot.png",
+                                             "image/png", png)
+        return self._request("POST", "/api/timesheet/screenshot",
+                             raw=body, content_type=content_type)
+
 
 # --------------------------------------------------------------------------- #
 # Main loop
 # --------------------------------------------------------------------------- #
+
+def _log_screenshot_mode(cfg, client=None):
+    """One startup line stating exactly how screenshots will be taken, so
+    'silent vs flashing' is never a surprise at runtime."""
+    if not _portal_init():
+        log(cfg, "screenshots: requested but unavailable (install python3-gi)")
+        return
+    if cfg.get("screenshot_gate", "dashboard").lower() == "dashboard" and client:
+        on = client.screenshots_enabled()
+        log(cfg, f"screenshots: controlled by the dashboard toggle "
+                 f"(Allow Screen Capture) — currently {'ON' if on else 'OFF'}")
+    method = (cfg.get("screenshot_method") or "auto").lower()
+
+    if method == "portal":
+        log(cfg, "screenshots: ON via portal — WARNING: the screen will FLASH")
+        return
+    if method == "extension":
+        log(cfg, "screenshots: ON via Shell extension — silent"
+                 if extension_available() else
+                 "screenshots: method=extension but the extension is NOT loaded; "
+                 "no shots will be taken (see tracker/gnome-extension/README.md)")
+        return
+    if method == "gnome":
+        log(cfg, "screenshots: ON via org.gnome.Screenshot (DeskTime-style) — silent"
+                 if gnome_capture_available() else
+                 "screenshots: method=gnome but org.gnome.Screenshot capture was "
+                 "refused; no shots will be taken")
+        return
+
+    # auto: report whichever silent route will actually serve, else the flash.
+    if extension_available():
+        log(cfg, "screenshots: ON via Shell extension — silent (auto)")
+    elif gnome_capture_available():
+        log(cfg, "screenshots: ON via org.gnome.Screenshot (DeskTime-style) — "
+                 "silent (auto; install the extension for the more durable route)")
+    else:
+        log(cfg, "screenshots: no silent route available, falling back to portal "
+                 "— WARNING: the screen will FLASH")
+
+
+def _upload_screenshot(client, cfg, png, started, slot_resp):
+    """Attach this interval's screenshot to the slot just created, and return a
+    short note for the log line.
+
+    Never raises: a screenshot that fails to capture or upload must not take
+    process tracking down with it."""
+    if not png:
+        return " | no shot"
+    slot_id = slot_resp.get("id") if isinstance(slot_resp, dict) else None
+    try:
+        status, resp = client.post_screenshot(png, started, slot_id)
+    except Exception as exc:
+        return f" | shot error: {str(exc)[:40]}"
+    if status in (200, 201):
+        return f" | shot {len(png) // 1024}KB" + ("" if slot_id else " (unattached)")
+    return f" | shot HTTP {status}: {str(resp)[:60]}"
+
 
 def main():
     cfg_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
@@ -606,25 +1265,64 @@ def main():
     client.login()
     log(cfg, f"OK. employee={client.employee_id[:8]} | interval {interval}s, "
              f"focus sample {fsample}s")
+    # State the per-employee settings in force, so the log says what this
+    # employee is actually configured for rather than what the file says.
+    _boot = fetch_employee_settings(cfg, client.employee_id)
+    if (cfg.get("settings_source") or "config").lower() == "url":
+        log(cfg, f"per-employee settings: {cfg.get('settings_url')} "
+                 f"({len(_boot)} override(s) in force)"
+            if _boot else
+            f"per-employee settings: {cfg.get('settings_url')} "
+            f"— unreachable or empty, using config.json values")
+    if not setting(cfg, _boot, "count_audio_as_active", True):
+        log(cfg, "idle rule: background media alone counts as IDLE for this employee")
+    if cfg.get("capture_screenshots"):
+        _log_screenshot_mode(cfg, client)
+        _every = int(setting(cfg, _boot, "screenshot_interval_seconds", 0) or 0)
+        if _every > interval:
+            log(cfg, f"screenshots: every {max(1, int(round(float(_every) / interval))) * interval}s "
+                     f"(requested {_every}s, snapped to the {interval}s slot grid)")
+
+    # Start a timer so posted slots attach to a running TimeLog — otherwise the
+    # dashboard's activity/screenshot views (scoped to a same-day TimeLog) show
+    # nothing, even though the slots and screenshots are stored correctly.
+    if cfg.get("maintain_timer", True):
+        log(cfg, "timer started, TimeLog=" + str(client.time_log_id)[:8]
+                 if client.start_timer() else
+                 "WARNING: could not start timer — dashboard may not show activity")
 
     prev = scan_proc()
+    cycle = 0            # counts intervals, so screenshot cadence can be every Nth
     try:
         while True:
-            started = datetime.now(timezone.utc)
+            started = now_ts(cfg)
+            cycle += 1
+            # Re-assert the timer so tracking cannot be paused/stopped from the
+            # dashboard: if it was stopped, this restarts it before we post.
+            if cfg.get("maintain_timer", True) and cfg.get("enforce_timer", True):
+                if not client.ensure_timer():
+                    log(cfg, "note: timer not running and could not be restarted")
+            # This employee's admin-set overrides, re-resolved each cycle (the
+            # fetch itself is cached) so a change in the dashboard takes effect
+            # without a restart.
+            overrides = fetch_employee_settings(cfg, client.employee_id)
             fg_seconds = {}       # wm_class -> seconds focused
             fg_by_pid = {}        # focused PID -> seconds focused (exact match)
             tabs = {}             # active browser tab title -> seconds watched
             active_seconds = 0    # seconds this slot was active (input or audio)
-            audio_seconds = 0     # seconds audio/video was playing
+            audio_seconds = 0     # seconds audio counted TOWARDS active
+            media_seconds = 0     # seconds media played, counted active or not
             deadline = time.monotonic() + interval
             while time.monotonic() < deadline:
                 time.sleep(fsample)
                 # activity sample: active if recent input OR audio playing
-                active, sig = is_active_now(cfg)
+                active, sig = is_active_now(cfg, overrides)
                 if active:
                     active_seconds += fsample
                 if sig["audio"]:
                     audio_seconds += fsample
+                if sig["media_playing"]:
+                    media_seconds += fsample
                 # focus / browser-tab sample
                 wm, title, fpid = get_focused()
                 if not wm:
@@ -636,6 +1334,30 @@ def main():
                     tab = clean_tab_title(title, browsers)
                     if tab:
                         tabs[tab] = tabs.get(tab, 0) + fsample
+            # Capture at the close of the slot window, so the image belongs to
+            # the interval we are about to post; it is uploaded afterwards,
+            # once the slot POST has handed back the id to attach it to.
+            # Gate: master switch AND (when gate=dashboard) the employee's live
+            # "Allow Screen Capture" toggle in Gauzy.
+            #
+            # Cadence: the per-employee screenshot interval, expressed as a
+            # whole number of scan intervals. It is snapped to the interval grid
+            # rather than run on its own clock because a shot can only be
+            # uploaded once THIS slot's POST hands back an id to attach it to,
+            # and Gauzy's screenshot views are scoped to a same-day TimeLog — a
+            # shot with no slot behind it is stored but never renders. Capturing
+            # off-grid would manufacture exactly those invisible orphans, so a
+            # requested cadence faster than the scan interval is honoured by
+            # capturing every interval rather than by capturing off-grid.
+            want_shot = cfg.get("capture_screenshots")
+            if want_shot and cfg.get("screenshot_gate", "dashboard").lower() == "dashboard":
+                want_shot = client.screenshots_enabled()
+            shot_due = True
+            shot_secs = int(setting(cfg, overrides, "screenshot_interval_seconds", 0) or 0)
+            if want_shot and shot_secs > interval:
+                every_n = max(1, int(round(float(shot_secs) / interval)))
+                shot_due = (cycle % every_n == 0)
+            shot = capture_screenshot(cfg) if (want_shot and shot_due) else None
             windows = list_windows()      # all open windows (X11 only; [] on Wayland)
             curr = scan_proc()
             rows = build_process_rows(prev, curr, interval, cfg, compiled, excluded,
@@ -649,18 +1371,47 @@ def main():
             if status in (200, 201):
                 pct = int(active_seconds / interval * 100)
                 state = "ACTIVE" if active_seconds > 0 else "IDLE"
-                extra = f" (audio {audio_seconds}s)" if audio_seconds else ""
+                # Show media time whenever media played. When it counted towards
+                # active this reads "audio Ns"; when the employee is on
+                # media-as-idle it reads "media Ns, idle" — which is the line an
+                # admin needs to see to trust that an idle-looking interval with
+                # Spotify running was classified deliberately, not missed.
+                if audio_seconds:
+                    extra = f" (audio {audio_seconds}s)"
+                elif media_seconds:
+                    extra = f" (media {media_seconds}s, idle)"
+                else:
+                    extra = ""
                 fg = [r for r in rows if r["foreground_seconds"] > 0]
                 watching = ", ".join(f"{r['name']}" for r in fg[:3]) or "-"
                 wins = f" | {len(windows)} windows" if windows else ""
+                shot_note = ""
+                if cfg.get("capture_screenshots"):
+                    if not want_shot:
+                        shot_note = " | shots OFF (dashboard)"
+                    elif not shot_due:
+                        # Say so rather than stay silent: an interval with no
+                        # shot line otherwise looks like a capture failure.
+                        shot_note = f" | no shot (every {shot_secs}s)"
+                    else:
+                        shot_note = _upload_screenshot(client, cfg, shot, started, resp)
                 log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
-                         f"{len(rows)} apps, on-screen: {watching} | {len(tabs)} tabs{wins}")
+                         f"{len(rows)} apps, on-screen: {watching} | "
+                         f"{len(tabs)} tabs{wins}{shot_note}")
             elif status == 401:
-                log(cfg, "token expired, re-login"); client.login()
+                log(cfg, "token expired, re-login")
+                client.login()
+                if cfg.get("maintain_timer", True):
+                    client.start_timer()   # the new session needs its timer too
             else:
                 log(cfg, f"push failed HTTP {status}: {str(resp)[:150]}")
     except KeyboardInterrupt:
         log(cfg, "stopped")
+    finally:
+        # By default the timer is LEFT RUNNING on exit, so a service restart
+        # keeps tracking continuous. Only stop it if explicitly asked to.
+        if cfg.get("maintain_timer", True) and cfg.get("stop_timer_on_exit", False):
+            client.stop_timer()
 
 
 if __name__ == "__main__":

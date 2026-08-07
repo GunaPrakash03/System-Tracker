@@ -42,6 +42,47 @@ GAUZY_URL=http://localhost:3000 GAUZY_EMAIL=you@co GAUZY_PASSWORD=... \
 | `watchlist` | Case-insensitive regex patterns of process names to report. **Empty list** = report every user process above `cpu_min_percent` |
 | `cpu_min_percent` | Threshold when `watchlist` is empty |
 | `max_processes` | Cap reported processes per interval (busiest first) |
+| `capture_screenshots` | Master enable — must be true for any capture. **Default `true`** |
+| `screenshot_gate` | `dashboard` (the Employees-page toggle decides) \| `config`. Default `dashboard` |
+| `screenshot_gate_refresh_seconds` | How often the dashboard toggle is re-read (default 30) |
+| `screenshot_method` | `auto` \| `extension` \| `gnome` \| `portal`. See below. Default `auto` |
+| `screenshot_timeout_seconds` | Give up if capture does not answer (default 20) |
+| `maintain_timer` | Keep a tracking timer running so slots appear in the dashboard. **Default `true`** — see *Dashboard visibility* |
+| `timer_source` | Timer/TimeLog source label (default `DESKTOP`) |
+
+## Continuous tracking — the timer (starts at login, cannot be stopped)
+
+Gauzy's activity and **screenshot** views (Employees → Activity) only show time
+slots joined to a **same-day TimeLog**. A slot posted on its own is stored
+correctly but stays invisible there. So the tracker, like the official desktop
+agent, **starts a timer** (creating a running TimeLog) and lets every posted
+slot attach to it. Config: `maintain_timer` (default on), `timer_source`.
+
+For **continuous, non-stoppable tracking** — begin at system start, no pause or
+stop — two more settings, both on by default:
+
+| Key | Default | Effect |
+|---|---|---|
+| `enforce_timer` | `true` | Every interval, if the timer was stopped/paused **from the dashboard**, it is restarted before posting. Any stop is undone within one interval. |
+| `stop_timer_on_exit` | `false` | The timer is **left running** when the tracker exits, so a service restart keeps tracking unbroken. Only the machine shutting down ends it. |
+
+Combined with running the tracker as a login service (below), tracking starts
+when the session starts and runs continuously until shutdown. A user *can* click
+stop in the dashboard, but the next interval re-asserts it — the button has no
+lasting effect. (Truly removing the button is a Gauzy **source** change, which
+this project deliberately avoids; enforcement gives the same result via config.)
+
+Verified end-to-end: with the timer off, freshly posted slots and screenshots do
+**not** appear in `GET /timesheet/time-slot` (the exact call the Screenshots
+gallery makes); with it on, they appear immediately.
+
+## Time — the system's local clock
+
+By default the tracker records with the **system's local wall-clock time**
+(`use_local_time: true`), so the dashboard shows the same time as the machine's
+clock. A slot taken at 11:50 on the machine reads 11:50 in Gauzy — not a UTC
+offset. Set `use_local_time: false` to record in UTC instead (then the org's
+timezone setting governs how it is displayed).
 
 ## Active vs idle time
 
@@ -100,6 +141,110 @@ route is also the fallback if an X query returns nothing.
 Switching this machine's login session to **Ubuntu on Xorg** is what enables the
 middle two rows — it was the open question in `docs/feasibility.md`.
 
+## Screenshots (`capture_screenshots`)
+
+Off by default — capturing someone's screen is a policy decision, not a default.
+When on, one screenshot per interval is taken at the close of the slot window
+and uploaded to `POST /api/timesheet/screenshot` with the `timeSlotId` returned
+by the slot POST, so it appears against that slot in
+**Employees → Activity → Screenshots**. The server builds the thumbnail itself.
+
+### Turning screenshots on/off from the dashboard (`screenshot_gate`)
+
+Screenshots are controlled from Gauzy, not the config file. With
+`screenshot_gate: "dashboard"` (default), each interval the tracker reads the
+employee's **"Allow Screen Capture"** flag and only captures when it is on:
+
+- **Where the toggle is:** Employees → *employee* → **Edit** → **Settings** tab
+  → **Timer Settings** → *Allow Screen Capture*. (Editable by an admin /
+  super-admin; it writes the employee's `allowScreenshotCapture` field.)
+- An admin flips it and the tracker obeys within
+  `screenshot_gate_refresh_seconds` (default 30) — **no config edit, no
+  restart**. The startup log and per-interval log show the state
+  (`shots OFF (dashboard)` when disabled).
+- `capture_screenshots` stays as a master switch: it must be true for capture to
+  be possible at all, but the dashboard toggle is the day-to-day control.
+- Set `screenshot_gate: "config"` to ignore the dashboard flag and let
+  `capture_screenshots` alone decide (the old behaviour).
+
+Verified: setting the employee's *Allow Screen Capture* off makes the tracker
+report `False` and skip capture; turning it back on resumes capture.
+
+### Silent operation (`screenshot_method`)
+
+DeskTime-style capture: no shutter sound, no visual flash/blink, no
+notification. All routes are Wayland-native (no Xorg); two are silent:
+
+| `screenshot_method` | Route | Silent? | Setup |
+|---|---|---|---|
+| `extension` | in-process GNOME Shell extension | **yes** | install + one logout |
+| `gnome` | own `org.gnome.Screenshot`, `Shell.Screenshot(flash=false)` — **exactly what DeskTime does on Wayland** | **yes** | none |
+| `portal` | `xdg-desktop-portal` | **no** — FLASHES | none |
+| `auto` (default) | `extension` → `gnome` → `portal` | silent unless neither silent route is available | none |
+
+**`auto` is recommended.** It prefers the durable extension, falls back to the
+no-setup DeskTime-style `gnome` route (silent and working immediately), and only
+flashes if neither is available. To pin one: `gnome` for silent-with-no-setup,
+`extension` for the most durable silent route (install from
+[`gnome-extension/`](gnome-extension/README.md), then it auto-starts).
+
+**Extension vs gnome — why keep both.** The `gnome` route works today with zero
+setup, but leans on GNOME's sender allowlist for `org.gnome.Screenshot`, which a
+future GNOME release may tighten. The extension runs *inside* gnome-shell and is
+not subject to that allowlist, so it is the durable choice — at the cost of one
+logout to load. `auto` gives you the no-setup route now and the durable route
+once installed.
+
+**Why the portal is not silent, and how the silent routes dodge it.** GNOME's
+portal always calls `org.gnome.Shell.Screenshot` with `flash=true` — verified on
+the bus, `boolean false(cursor) boolean true(FLASH)` — so it draws a white blink
+every shot. That method's `flash=false` form is refused to ordinary callers
+(`AccessDenied: Screenshot is not allowed`). Two ways past it:
+
+- **`gnome`** owns the `org.gnome.Screenshot` bus name, which is on GNOME's
+  sender allowlist for that method — the same identity DeskTime's bundled
+  gnome-screenshot fork registers under — then calls it with `flash=false`.
+  Confirmed on the wire: every call `boolean false, boolean false`.
+- **`extension`** runs inside gnome-shell and calls `Shell.Screenshot` directly,
+  which is not gated at all.
+
+(No route emits a notification: zero `Notify` calls were seen on the bus.)
+
+**Why not X11 at all.** On Wayland, XWayland's root window reports the right
+geometry but `XGetImage` against it fails with **BadMatch** — a protocol error,
+not a blank frame, because the root is unredirected:
+
+```
+XWayland root window: 1600x900 depth=24
+XGetImage  -> BadMatch     xwd -root -> BadMatch, 0-byte output
+```
+
+That one fact explains every X11-based capturer failing here: Gauzy's
+`ElectronDesktopCapturer`, its `ScreenshotDesktopLib` engine (ImageMagick
+`import`), and third-party tools like AutoScreenshot.
+
+### Requirements and behaviour
+
+- **`python3-gi`** — a system package (preinstalled on Ubuntu GNOME), imported
+  lazily. Without it the tracker still runs, minus screenshots, and says so at
+  startup. It is the one non-stdlib import in the project.
+- **No consent dialog** on either route: the extension is in-process, and the
+  portal is called with `interactive: false` (answered directly on GNOME 46).
+- Whichever route is used, the tracker reads the PNG and deletes the temp file,
+  so nothing accumulates on disk.
+- A failed capture or upload never interrupts process tracking — it just shows
+  in the log line.
+
+Verified end to end against a local Gauzy — the **portal** path (silent-extension
+path is verified by the extension's own D-Bus test, since a Wayland shell cannot
+be reloaded mid-session): consecutive slots, each screenshot stored,
+thumbnailed, and `timeSlotId` set.
+
+```
+[10:16:44] ACTIVE 100% (15/15s) | 10 apps, on-screen: gnome-terminal-server | 0 tabs | shot 242KB
+[10:17:00] ACTIVE 100% (15/15s) (audio 5s) | 10 apps, on-screen: chrome, … | 1 tabs | shot 257KB
+```
+
 ## What it does NOT capture
 
 - **Keyboard/mouse intensity** — that's the Gauzy agent's job; this posts
@@ -109,29 +254,43 @@ middle two rows — it was the open question in `docs/feasibility.md`.
   not OS windows: the other tabs in a window remain invisible, and no window
   property carries the URL. Full per-URL history needs a browser extension (out
   of scope here by request) or AT-SPI accessibility integration.
-- **Screenshots** — not captured.
+- **Keystrokes, clipboard, or file contents** — never touched.
 
-## Run as a service (systemd user unit)
+## Start at login and run continuously (systemd user unit)
+
+This is what makes tracking **begin when the session starts** and stay running.
+The unit binds to the graphical session (needed for the Wayland screenshot and
+focus signals), and `Restart=always` brings it straight back if it ever exits —
+and because `stop_timer_on_exit` is false, that restart does not interrupt the
+timer.
 
 ```ini
 # ~/.config/systemd/user/proc-tracker.service
 [Unit]
 Description=System-Tracker process tracker
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 ExecStart=/usr/bin/python3 %h/System-Tracker/tracker/proc_tracker.py %h/System-Tracker/tracker/config.json
 Restart=always
-RestartSec=10
+RestartSec=5
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 ```
 
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now proc-tracker
+systemctl --user status proc-tracker      # confirm it is active
+journalctl --user -u proc-tracker -f      # watch its log
 ```
+
+The tracker starts automatically at every login. To have it run even before an
+interactive login (e.g. an auto-login kiosk), also enable lingering:
+`sudo loginctl enable-linger $USER` — but the graphical session must exist for
+capture to work, so login-triggered start is the normal mode.
 
 ## How it maps to Gauzy
 

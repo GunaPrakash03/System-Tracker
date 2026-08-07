@@ -1,0 +1,516 @@
+diff --git a/apps/gauzy/src/app/pages/settings/settings.routes.ts b/apps/gauzy/src/app/pages/settings/settings.routes.ts
+index f1d279c..0079e68 100644
+--- a/apps/gauzy/src/app/pages/settings/settings.routes.ts
++++ b/apps/gauzy/src/app/pages/settings/settings.routes.ts
+@@ -75,6 +75,15 @@ export function createSettingsRoutes(_pageRouteRegistryService: PageRouteRegistr
+ 					loadChildren: () =>
+ 						import('./roles-permissions/roles-permissions.module').then((m) => m.RolesPermissionsModule)
+ 				},
++				{
++					// System-Tracker settings. The data lives in the tracker's own
++					// admin service; this route only renders the page inside the
++					// settings shell. That service re-checks SUPER_ADMIN itself —
++					// the guard here decides visibility, not access.
++					path: 'tracker',
++					loadChildren: () =>
++						import('./tracker-settings/tracker-settings.module').then((m) => m.TrackerSettingsModule)
++				},
+ 				{
+ 					path: 'import-export',
+ 					loadChildren: () =>
+diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
+new file mode 100644
+index 0000000..0e3e2a0
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
+@@ -0,0 +1,116 @@
++<nb-card>
++	<nb-card-header class="d-flex justify-content-between align-items-center">
++		<h5 class="mb-0">Tracker Settings</h5>
++		<nb-button-group size="small">
++			<button nbButton [class.selected]="tab === 'employees'" (click)="tab = 'employees'">Employees</button>
++			<button nbButton [class.selected]="tab === 'apps'" (click)="tab = 'apps'">App productivity</button>
++		</nb-button-group>
++	</nb-card-header>
++
++	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
++		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
++		<div *ngIf="saved" class="alert alert-success">{{ saved }}</div>
++
++		<!-- Employees -->
++		<div *ngIf="tab === 'employees'">
++			<p class="text-hint">
++				Applied by the tracker within 60 seconds — no restart. Leaving a value at
++				<b>Default</b> lets the workstation's own configuration decide.
++			</p>
++			<table class="table">
++				<thead>
++					<tr>
++						<th>Employee</th>
++						<th>Screenshot every</th>
++						<th>Media counts as idle</th>
++						<th>Department</th>
++						<th></th>
++					</tr>
++				</thead>
++				<tbody>
++					<tr *ngFor="let row of employees">
++						<td>{{ row.label }}</td>
++						<td>
++							<nb-select size="small" [(selected)]="row.interval">
++								<nb-option *ngFor="let i of intervals" [value]="i.value">{{ i.label }}</nb-option>
++							</nb-select>
++						</td>
++						<td><nb-toggle [(checked)]="row.mediaIdle"></nb-toggle></td>
++						<td>
++							<nb-select size="small" [(selected)]="row.departmentId">
++								<nb-option value="">—</nb-option>
++								<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
++							</nb-select>
++						</td>
++						<td>
++							<button nbButton size="small" status="primary" (click)="saveEmployee(row)">Save</button>
++						</td>
++					</tr>
++					<tr *ngIf="!employees.length && !loading">
++						<td colspan="5" class="text-hint">No employees found.</td>
++					</tr>
++				</tbody>
++			</table>
++			<p class="text-hint">
++				A screenshot interval is snapped to the tracker's slot interval, because a screenshot
++				can only be attached to a time slot that exists. Asking for a shorter interval than the
++				slot captures once per slot rather than producing screenshots the dashboard cannot show.
++			</p>
++		</div>
++
++		<!-- App productivity -->
++		<div *ngIf="tab === 'apps'">
++			<p class="text-hint">
++				Apps are matched on <b>process name</b> — what the tracker reports, such as
++				<code>chrome</code>, <code>code</code> or <code>postgres</code>. The same app can be
++				productive for one department and unproductive for another. Anything unclassified counts
++				as Neutral.
++			</p>
++			<nb-select [(selected)]="appDept" (selectedChange)="loadApps()" placeholder="Department">
++				<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
++			</nb-select>
++			<p *ngIf="!departments.length" class="text-hint mt-2">
++				No departments yet — add them under <b>Organization → Departments</b>, then they appear here.
++			</p>
++
++			<table class="table mt-3" *ngIf="appDept">
++				<thead>
++					<tr>
++						<th>Process name</th>
++						<th>Category</th>
++						<th></th>
++					</tr>
++				</thead>
++				<tbody>
++					<tr *ngFor="let a of apps">
++						<td>{{ a.name }}</td>
++						<td>
++							<nb-select size="small" [(selected)]="a.category">
++								<nb-option *ngFor="let c of categories" [value]="c">{{ c }}</nb-option>
++							</nb-select>
++						</td>
++						<td>
++							<button nbButton size="small" status="primary" (click)="saveApp(a.name, a.category)">
++								Save
++							</button>
++							<button nbButton size="small" status="danger" (click)="removeApp(a.name)">Remove</button>
++						</td>
++					</tr>
++					<tr>
++						<td><input nbInput fieldSize="small" [(ngModel)]="newApp" placeholder="e.g. spotify" /></td>
++						<td>
++							<nb-select size="small" [(selected)]="newAppCategory">
++								<nb-option *ngFor="let c of categories" [value]="c">{{ c }}</nb-option>
++							</nb-select>
++						</td>
++						<td>
++							<button nbButton size="small" status="success" (click)="saveApp(newApp, newAppCategory)">
++								Add
++							</button>
++						</td>
++					</tr>
++				</tbody>
++			</table>
++		</div>
++	</nb-card-body>
++</nb-card>
+diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
+new file mode 100644
+index 0000000..991d950
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
+@@ -0,0 +1,188 @@
++import { Component, OnInit } from '@angular/core';
++import { HttpClient, HttpHeaders } from '@angular/common/http';
++import { Store } from '@gauzy/ui-core/core';
++import { firstValueFrom } from 'rxjs';
++
++/**
++ * System-Tracker settings, rendered inside the Gauzy settings shell.
++ *
++ * The data lives in the System-Tracker admin service, NOT in Gauzy — Gauzy has
++ * no per-employee screenshot interval (its screenshotFrequency is
++ * organisation-wide), no notion of media counting as idle, and no concept of an
++ * app being productive within a particular department. This page is a thin
++ * client over that service so those settings appear where an admin already
++ * works, without inventing Gauzy entities for them.
++ *
++ * The service verifies the caller's Gauzy token server-side and refuses anyone
++ * who is not a SUPER_ADMIN. The permission guard on this route only decides
++ * whether the menu entry is worth showing — it is not the access control.
++ */
++interface EmployeeRow {
++	id: string;
++	label: string;
++	interval: string;
++	mediaIdle: boolean;
++	departmentId: string;
++}
++
++@Component({
++	selector: 'ga-tracker-settings',
++	templateUrl: './tracker-settings.component.html',
++	standalone: false
++})
++export class TrackerSettingsComponent implements OnInit {
++	public tab: 'employees' | 'apps' = 'employees';
++	public loading = true;
++	public error = '';
++	public saved = '';
++
++	public employees: EmployeeRow[] = [];
++	public departments: { id: string; name: string }[] = [];
++
++	/** Intervals Gauzy itself offers, so the two agree. */
++	public readonly intervals = [
++		{ value: '', label: 'Default' },
++		{ value: '60', label: '1 minute' },
++		{ value: '180', label: '3 minutes' },
++		{ value: '300', label: '5 minutes' },
++		{ value: '600', label: '10 minutes' }
++	];
++	public readonly categories = ['Productive', 'Neutral', 'Unproductive'];
++
++	public appDept = '';
++	public apps: { name: string; category: string }[] = [];
++	public newApp = '';
++	public newAppCategory = 'Productive';
++
++	constructor(private readonly http: HttpClient, private readonly store: Store) {}
++
++	/**
++	 * Base URL of the admin service. Same host as the dashboard, fixed port —
++	 * the service runs on each admin's own machine beside Gauzy, so deriving the
++	 * host from the browser location keeps it correct whether that is localhost
++	 * or a LAN address, without a build-time constant to forget to change.
++	 */
++	private get base(): string {
++		return `${window.location.protocol}//${window.location.hostname}:8600`;
++	}
++
++	private get headers(): HttpHeaders {
++		return new HttpHeaders({ Authorization: `Bearer ${this.store.token}` });
++	}
++
++	async ngOnInit(): Promise<void> {
++		await this.load();
++	}
++
++	private async load(): Promise<void> {
++		this.loading = true;
++		this.error = '';
++		try {
++			const data: any = await firstValueFrom(
++				this.http.get(`${this.base}/api/admin/state`, { headers: this.headers })
++			);
++			this.departments = data.departments || [];
++			this.employees = (data.employees || []).map((e: any) => ({
++				id: e.id,
++				label: e.label,
++				interval: e.screenshot_interval_seconds ? String(e.screenshot_interval_seconds) : '',
++				mediaIdle: e.count_audio_as_active === false,
++				departmentId: e.department_id || ''
++			}));
++			if (!this.appDept && this.departments.length) {
++				this.appDept = this.departments[0].id;
++			}
++			await this.loadApps();
++		} catch (e: any) {
++			// A 403 here means the signed-in user is not a super admin; anything
++			// else almost always means the tracker admin service is not running.
++			this.error =
++				e?.status === 403
++					? 'Super admin permission is required for these settings.'
++					: `Cannot reach the tracker settings service on port 8600. Is it running? (${
++							e?.status || 'no response'
++					  })`;
++		} finally {
++			this.loading = false;
++		}
++	}
++
++	public async loadApps(): Promise<void> {
++		if (!this.appDept) {
++			this.apps = [];
++			return;
++		}
++		try {
++			const data: any = await firstValueFrom(
++				this.http.get(`${this.base}/api/categories?departmentId=${this.appDept}`, {
++					headers: this.headers
++				})
++			);
++			this.apps = Object.entries(data.apps || {}).map(([name, category]) => ({
++				name,
++				category: category as string
++			}));
++		} catch {
++			this.apps = [];
++		}
++	}
++
++	public async saveEmployee(row: EmployeeRow): Promise<void> {
++		this.saved = '';
++		try {
++			await firstValueFrom(
++				this.http.post(
++					`${this.base}/api/admin/employee`,
++					{
++						employee_id: row.id,
++						screenshot_interval_seconds: row.interval ? Number(row.interval) : null,
++						// false means "media is idle for this person"; null means
++						// "no opinion", leaving the workstation's own config to
++						// decide. Sending true would overrule a machine that
++						// deliberately set it false locally.
++						count_audio_as_active: row.mediaIdle ? false : null,
++						department_id: row.departmentId || null
++					},
++					{ headers: this.headers }
++				)
++			);
++			this.saved = `Saved ${row.label}. The tracker applies it within 60 seconds.`;
++		} catch {
++			this.error = 'Could not save. Check the tracker settings service.';
++		}
++	}
++
++	public async saveApp(name: string, category: string): Promise<void> {
++		if (!name || !this.appDept) return;
++		this.saved = '';
++		try {
++			await firstValueFrom(
++				this.http.post(
++					`${this.base}/api/admin/app`,
++					{ department_id: this.appDept, app_name: name, category },
++					{ headers: this.headers }
++				)
++			);
++			this.newApp = '';
++			this.saved = `Saved ${name}.`;
++			await this.loadApps();
++		} catch {
++			this.error = 'Could not save the app category.';
++		}
++	}
++
++	public async removeApp(name: string): Promise<void> {
++		try {
++			await firstValueFrom(
++				this.http.post(
++					`${this.base}/api/admin/app-delete`,
++					{ department_id: this.appDept, app_name: name },
++					{ headers: this.headers }
++				)
++			);
++			await this.loadApps();
++		} catch {
++			this.error = 'Could not remove the app.';
++		}
++	}
++}
+diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts
+new file mode 100644
+index 0000000..52cd875
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts
+@@ -0,0 +1,44 @@
++import { NgModule } from '@angular/core';
++import { CommonModule } from '@angular/common';
++import { FormsModule } from '@angular/forms';
++import { RouterModule } from '@angular/router';
++import {
++	NbButtonModule,
++	NbButtonGroupModule,
++	NbCardModule,
++	NbInputModule,
++	NbSelectModule,
++	NbSpinnerModule,
++	NbToggleModule
++} from '@nebular/theme';
++import { TranslateModule } from '@ngx-translate/core';
++import { TrackerSettingsComponent } from './tracker-settings.component';
++
++const NB_MODULES = [
++	NbButtonModule,
++	NbButtonGroupModule,
++	NbCardModule,
++	NbInputModule,
++	NbSelectModule,
++	NbSpinnerModule,
++	NbToggleModule
++];
++
++/**
++ * System-Tracker settings page.
++ *
++ * Routing is declared here rather than in a separate routing module: the page is
++ * a single component with no children, so a second file would carry one route
++ * and nothing else.
++ */
++@NgModule({
++	imports: [
++		CommonModule,
++		FormsModule,
++		RouterModule.forChild([{ path: '', component: TrackerSettingsComponent }]),
++		TranslateModule.forChild(),
++		...NB_MODULES
++	],
++	declarations: [TrackerSettingsComponent]
++})
++export class TrackerSettingsModule {}
+diff --git a/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.html b/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.html
+index 4a812a9..54bc345 100644
+--- a/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.html
++++ b/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.html
+@@ -143,12 +143,12 @@
+ 				</div>
+ 			</div>
+ 			<div class="h1">
+-				{{ counts?.todayDuration || 0 | durationFormat }}
++				{{ liveTodayDuration | durationFormat }}
+ 			</div>
+ 			<div class="counter-container">
+ 				<gauzy-counter-point
+ 					[total]="period"
+-					[value]="counts?.todayDuration || 0"
++					[value]="liveTodayDuration"
+ 					[color]="'#00D68F'"
+ 				></gauzy-counter-point>
+ 			</div>
+diff --git a/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.ts b/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.ts
+index 2104306..da5547a 100644
+--- a/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.ts
++++ b/packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.ts
+@@ -107,6 +107,14 @@ export class TimeTrackingComponent
+ 	employeesCount: number;
+ 	projectCount: number;
+ 
++	// System-Tracker: "Worked today" ticks live, every second. counts.todayDuration
++	// is the authoritative server value (advances as activity is posted); between
++	// refreshes we count seconds up from the last synced value, and each getCounts
++	// re-syncs to the server number.
++	public liveTodayDuration = 0;
++	private _todayBaseSeconds = 0;
++	private _todaySyncedAt = 0;
++
+ 	public organization: IOrganization;
+ 	logs$: Subject<any> = new Subject();
+ 
+@@ -170,6 +178,14 @@ export class TimeTrackingComponent
+ 	}
+ 
+ 	ngOnInit() {
++		// System-Tracker: tick "Worked today" every second, re-syncing to the
++		// server value on each getCounts().
++		timer(0, 1000)
++			.pipe(untilDestroyed(this))
++			.subscribe(() => {
++				const elapsed = this._todaySyncedAt ? Math.floor((Date.now() - this._todaySyncedAt) / 1000) : 0;
++				this.liveTodayDuration = this._todayBaseSeconds + elapsed;
++			});
+ 		this._store.user$
+ 			.pipe(
+ 				filter((user: IUser) => !!user),
+@@ -310,7 +326,9 @@ export class TimeTrackingComponent
+ 			this.autoRefresh$.unsubscribe();
+ 		}
+ 		if (value) {
+-			this.autoRefresh$ = timer(0, 60000 * 5)
++			// System-Tracker: refresh every 60s (was 5 min) so the dashboard
++			// pulls fresh DB data promptly; the per-second ticker fills the gap.
++			this.autoRefresh$ = timer(0, 60000)
+ 				.pipe(
+ 					filter((timer) => !!timer),
+ 					tap(() => this.logs$.next(true)),
+@@ -341,6 +359,9 @@ export class TimeTrackingComponent
+ 			this.countsLoading = true;
+ 			const request: IGetCountsStatistics = this.payloads$.getValue();
+ 			this.counts = await this._timesheetStatisticsService.getCounts(request);
++			// Re-sync the live "Worked today" ticker to the authoritative value.
++			this._todayBaseSeconds = this.counts?.todayDuration || 0;
++			this._todaySyncedAt = Date.now();
+ 		} catch (error) {
+ 			this._toastrService.error(error.message || 'An error occurred while fetching counts.');
+ 		} finally {
+diff --git a/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts b/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
+index b5301e3..512b3ae 100644
+--- a/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
++++ b/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
+@@ -1194,6 +1194,23 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
+ 							featureKey: FeatureEnum.FEATURE_ROLES_PERMISSION
+ 						}
+ 					},
++					{
++						// System-Tracker settings. Gated on CHANGE_ROLES_PERMISSIONS
++						// because Gauzy has no "is super admin" permission to test
++						// and, per config/roles-manager-hr.sql, that permission is
++						// held by SUPER_ADMIN alone. This only hides the entry —
++						// the tracker's admin service verifies the caller's role
++						// itself, so an admin who reached the page anyway is
++						// refused by the server rather than by a hidden link.
++						id: 'settings-tracker',
++						title: 'Tracker Settings',
++						link: '/pages/settings/tracker',
++						icon: 'fas fa-desktop',
++						data: {
++							translationKey: 'MENU.TRACKER_SETTINGS',
++							permissionKeys: [PermissionsEnum.CHANGE_ROLES_PERMISSIONS]
++						}
++					},
+ 					{
+ 						id: 'settings-danger-zone',
+ 						title: 'Danger Zone',
+diff --git a/packages/ui-core/i18n/assets/i18n/en.json b/packages/ui-core/i18n/assets/i18n/en.json
+index 6ba729d..5cb7447 100644
+--- a/packages/ui-core/i18n/assets/i18n/en.json
++++ b/packages/ui-core/i18n/assets/i18n/en.json
+@@ -915,6 +915,7 @@
+ 		"EMAIL_HISTORY": "Email History",
+ 		"USERS": "Users",
+ 		"ROLES": "Roles & Permissions",
++		"TRACKER_SETTINGS": "Tracker Settings",
+ 		"DANGER_ZONE": "Danger Zone",
+ 		"FILE_STORAGE": "File Storage",
+ 		"INVITE_PEOPLE": "Invite People",
+diff --git a/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html b/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html
+index d7a318a..4a3110b 100644
+--- a/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html
++++ b/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html
+@@ -63,7 +63,10 @@
+ 									</span>
+ 									<ga-time-tracker-status class="status"></ga-time-tracker-status>
+ 								</div>
+-								<div class="actions">
++								<!-- System-Tracker: manual start/stop removed. Tracking is
++								     started automatically at system login and kept running
++								     by the process tracker; users cannot pause or stop it. -->
++								<div class="actions" style="display: none">
+ 									<div class="toggle">
+ 										<button
+ 											nbButton

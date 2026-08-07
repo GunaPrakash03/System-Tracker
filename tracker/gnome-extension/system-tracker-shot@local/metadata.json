@@ -1,0 +1,7 @@
+{
+  "uuid": "system-tracker-shot@local",
+  "name": "System-Tracker Silent Screenshot",
+  "description": "Captures the screen with no flash, no shutter sound, and no notification, and exposes it over D-Bus for the System-Tracker process tracker. Runs in-process inside GNOME Shell, which is the only way to capture silently on Wayland — the xdg-desktop-portal route always flashes the screen.",
+  "shell-version": ["45", "46", "47", "48"],
+  "session-modes": ["user", "unlock-dialog"]
+}

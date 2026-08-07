@@ -1,3 +1,9 @@
 config.json
 __pycache__/
 *.pyc
+dist/
+dashboard-mods/*.bak
+
+# admin app state and local credentials
+admin/settings.db
+admin/config.json

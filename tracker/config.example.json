@@ -24,5 +24,15 @@
   "max_processes": 40,
   "idle_threshold_seconds": 180,
   "count_audio_as_active": true,
+  "capture_screenshots": true,
+  "screenshot_gate": "dashboard",
+  "screenshot_gate_refresh_seconds": 30,
+  "screenshot_method": "auto",
+  "screenshot_timeout_seconds": 20,
+  "maintain_timer": true,
+  "timer_source": "DESKTOP",
+  "enforce_timer": true,
+  "stop_timer_on_exit": false,
+  "use_local_time": true,
   "verbose": true
 }
