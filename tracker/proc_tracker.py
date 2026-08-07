@@ -110,7 +110,10 @@ DEFAULT_CONFIG = {
     #
     # Idle detection uses GNOME's Mutter IdleMonitor (works on Wayland & X11);
     # audio detection reads /proc/asound stream state (no external tools).
-    "idle_threshold_seconds": 180,      # 3 min of no input & no audio => idle
+    # How long without keyboard/mouse before a moment counts as idle. You remain
+    # "active" for this long after your last keystroke, so short pauses for
+    # reading or thinking do not register as idle. Overridable per employee.
+    "idle_threshold_seconds": 180,
     # Whether media alone is enough to count as active. TRUE (the default) means
     # background video/music keeps the machine active. Set FALSE — or override it
     # per employee — and media playing with no keyboard/mouse counts as IDLE,
@@ -616,7 +619,12 @@ def is_active_now(cfg, overrides=None):
     and the log needs the raw fact to explain WHY an interval reads idle while
     music is audible."""
     idle = get_idle_seconds()
-    recent_input = (idle is not None) and (idle < cfg["idle_threshold_seconds"])
+    # Per employee: how long without input before the moment counts as idle.
+    # Deliberately generous by default — reading, thinking and watching are work,
+    # and a short threshold punishes them — but roles differ, so an admin can
+    # tighten it for staff whose work is continuous input.
+    threshold = int(setting(cfg, overrides, "idle_threshold_seconds", 180) or 180)
+    recent_input = (idle is not None) and (idle < threshold)
     playing = is_audio_playing()
     audio = bool(setting(cfg, overrides, "count_audio_as_active", True)) and playing
     return recent_input or audio, {"idle_s": idle, "audio": audio,
@@ -1151,6 +1159,10 @@ class GauzyClient:
         organizationId. Gauzy rejects a bare list with "where should not be
         empty", and an employeeId alone with "where.organization must be an
         object"; only the fully scoped form returns rows."""
+        # There is exactly ONE settings row per employee: POST to this endpoint
+        # is an upsert keyed on the employee, not an insert, and it replaces the
+        # whole `data` object. Both the dashboard and this tracker therefore
+        # read-merge-write that single row rather than writing their own.
         path = (f"/api/employee-settings?where[employeeId]={self.employee_id}"
                 f"&where[tenantId]={self.tenant_id}"
                 f"&where[organizationId]={self.organization_id}")
@@ -1159,14 +1171,109 @@ class GauzyClient:
             return None
         items = data if isinstance(data, list) else (
             data.get("items", []) if isinstance(data, dict) else [])
-        # Newest wins: the dashboard writes a fresh row rather than mutating the
-        # old one, so an employee accumulates history and only the last entry
-        # reflects what the admin currently intends.
+        # Newest wins among the admin's own rows: the dashboard writes a fresh
+        # row rather than mutating the old one, so only the last entry reflects
+        # what the admin currently intends.
         out = {}
         for it in items:
             if isinstance(it, dict) and isinstance(it.get("data"), dict):
                 out = it["data"]
         return out
+
+    # ---- daily usage summary -------------------------------------------- #
+    #
+    # Why the tracker publishes this at all: Gauzy's activity list endpoint is
+    # hard-capped at 30 rows in its controller (`{ page: 0, limit: 30 }`, with a
+    # whitelisting validation pipe that strips any limit you pass), so a
+    # dashboard cannot read a day of per-app activity — it sees 30 of several
+    # thousand rows and reports minutes where there were hours. The aggregating
+    # `/activity/daily` endpoint returns complete totals but drops `metaData`,
+    # which is where foreground seconds live. Neither endpoint alone can answer
+    # "how long was this app actually on screen today".
+    #
+    # So the tracker, which has the numbers already, keeps a running daily total
+    # in the employee's own record and the dashboard reads that instead.
+    #
+    # Written as settingType=Normal, in ONE row that this process created and
+    # holds the id of. It never updates a row it did not create, and never
+    # writes a Custom row — those belong to the admin.
+
+    _usage_row_id = None
+    _usage_date = None
+
+    def _find_usage_row(self, day):
+        """Id of this employee's usage row for `day`, or None."""
+        path = (f"/api/employee-settings?where[employeeId]={self.employee_id}"
+                f"&where[tenantId]={self.tenant_id}"
+                f"&where[organizationId]={self.organization_id}"
+                f"&where[settingType]=Normal")
+        status, data = self._request("GET", path)
+        if status not in (200, 201):
+            return None, {}
+        items = data if isinstance(data, list) else (
+            data.get("items", []) if isinstance(data, dict) else [])
+        for it in items:
+            d = it.get("data") if isinstance(it, dict) else None
+            if isinstance(d, dict) and d.get("date") == day:
+                return it.get("id"), d
+        return None, {}
+
+    def usage_for(self, day):
+        """Today's already-published totals, so a restart resumes the day rather
+        than zeroing it."""
+        data = self.employee_settings() or {}
+        u = data.get("usage")
+        if isinstance(u, dict) and u.get("date") == day:
+            return {"apps": u.get("apps") or {}, "hours": u.get("hours") or {}}
+        return {"apps": {}, "hours": {}}
+
+    def publish_usage(self, day, summary):
+        """Publish today's per-app running and on-screen seconds.
+
+        Why the tracker publishes this at all: Gauzy's activity list endpoint is
+        hard-capped at 30 rows in its controller (`{ page: 0, limit: 30 }`, with
+        a whitelisting pipe that strips any limit you pass), so a dashboard
+        cannot read a day of per-app activity — it sees 30 rows of several
+        thousand and reports minutes where there were hours. The aggregating
+        `/activity/daily` endpoint is complete but drops `metaData`, which is
+        where foreground seconds live. Neither can answer "how long was this app
+        on screen today", so the tracker publishes the totals it already has.
+
+        READ-MERGE-WRITE, and never a blind write. There is one settings row per
+        employee and POST replaces its entire `data` object, so writing only the
+        usage would destroy the admin's screenshot interval, media rule and blur
+        setting — which is exactly what happens if you assume these are separate
+        records. The row is re-read immediately before each write so the window
+        in which a dashboard save could be lost is milliseconds rather than the
+        settings cache lifetime.
+
+        Never raises: a failed summary must not interrupt tracking."""
+        try:
+            current = self.employee_settings()
+            if current is None:
+                return False              # could not read: do NOT write blind
+            merged = dict(current)
+            merged["usage"] = {"date": day,
+                               "apps": summary.get("apps") or {},
+                               # Per-hour buckets, so the chart never has to read
+                               # the capped activity or time-slot endpoints: they
+                               # return ~30 rows of the several hundred a day
+                               # produces, and almost none carry foreground
+                               # seconds, so every hour collapsed to Neutral.
+                               "hours": summary.get("hours") or {},
+                               "source": "system-tracker"}
+            status, _ = self._request("POST", "/api/employee-settings", {
+                "employeeId": self.employee_id,
+                "organizationId": self.organization_id,
+                "tenantId": self.tenant_id,
+                "entity": "Employee",
+                "entityId": self.employee_id,
+                "settingType": "Custom",
+                "data": merged,
+            })
+            return status in (200, 201, 202)
+        except Exception:
+            return False
 
     def start_timer(self):
         """Start a tracking timer, creating a running TimeLog the posted slots
@@ -1381,6 +1488,9 @@ def main():
             f"— unreachable or empty, using config.json values")
     if not setting(cfg, _boot, "count_audio_as_active", True):
         log(cfg, "idle rule: background media alone counts as IDLE for this employee")
+    _idle_after = int(setting(cfg, _boot, "idle_threshold_seconds", 180) or 180)
+    if _idle_after != cfg.get("idle_threshold_seconds", 180):
+        log(cfg, f"idle rule: idle after {_idle_after}s without input (per-employee)")
     if cfg.get("capture_screenshots"):
         _log_screenshot_mode(cfg, client)
         _every = int(setting(cfg, _boot, "screenshot_interval_seconds", 0) or 0)
@@ -1398,6 +1508,13 @@ def main():
 
     prev = scan_proc()
     cycle = 0            # counts intervals, so screenshot cadence can be every Nth
+    # Per-day per-app totals published for the dashboard. Kept here rather than
+    # recomputed from Gauzy because the API cannot return a full day of activity
+    # rows — see GauzyClient.post_usage_summary for why.
+    usage_day = None     # the date these totals belong to
+    # {"apps": {name: {"r": running, "s": on_screen}},
+    #  "hours": {"HH": {"wall": s, "active": s, "apps": {name: on_screen}}}}
+    usage = {"apps": {}, "hours": {}}
     try:
         while True:
             started = now_ts(cfg)
@@ -1478,6 +1595,38 @@ def main():
             if not rows and not tabs:
                 log(cfg, "nothing to report this interval")
                 continue
+            # Accumulate the day's totals before posting. Reset on rollover so
+            # a tracker left running overnight does not fold two days together.
+            # The usage summary is a HUMAN report, so it is keyed by the
+            # machine's local wall clock — not by `started`, which is UTC
+            # whenever use_local_time is false. Keying it in UTC put an IST
+            # afternoon into the 03:00-09:00 bars and, near midnight, filed work
+            # under the wrong day entirely. What the tracker POSTS to Gauzy is
+            # unchanged; only these report buckets are local.
+            local_now = datetime.now()
+            today = local_now.strftime("%Y-%m-%d")
+            if usage_day != today:
+                # Resume the day rather than restarting it — see usage_for.
+                usage_day, usage = today, client.usage_for(today)
+            day_apps = usage.setdefault("apps", {})
+            hours = usage.setdefault("hours", {})
+            # Hour bucket for this slot. wall/active give the chart its idle
+            # split; per-app foreground seconds give the productive split. Both
+            # are recorded here because the API cannot serve either at day scale.
+            hb = hours.setdefault(local_now.strftime("%H"),
+                                  {"wall": 0, "active": 0, "apps": {}})
+            hb["wall"] += interval
+            hb["active"] += int(active_seconds)
+            for r in rows:
+                fg = int(r.get("foreground_seconds", 0) or 0)
+                acc = day_apps.setdefault(r["name"], {"r": 0, "s": 0})
+                acc["r"] += interval
+                acc["s"] += fg
+                # Only apps actually on screen go in the hour bucket — a bucket
+                # listing every headless process would be mostly zeroes.
+                if fg:
+                    hb["apps"][r["name"]] = hb["apps"].get(r["name"], 0) + fg
+
             status, resp = client.post_time_slot(rows, tabs, started, interval,
                                                  active_seconds, audio_seconds)
             if status in (200, 201):
@@ -1511,6 +1660,15 @@ def main():
                         shot_note = _upload_screenshot(client, cfg, shot, started, resp)
                         if blurred:
                             shot_note += " blurred"
+                # Publish after the slot, so a failed summary never costs us the
+                # slot itself — tracking matters more than the report.
+                # Publish every 5th interval, not every one. The write is a
+                # read-merge-write against the same row the dashboard saves to,
+                # so a lower frequency shrinks the window in which an admin's
+                # save could be overwritten, at the cost of the report trailing
+                # reality by a few minutes — the right trade for a daily total.
+                if cycle % 5 == 0:
+                    client.publish_usage(today, usage)
                 log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
                          f"{len(rows)} apps, on-screen: {watching} | "
                          f"{len(tabs)} tabs{wins}{shot_note}")

@@ -1,3 +1,943 @@
+diff --git a/apps/gauzy/src/app/pages/employees/activity/activity.module.ts b/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
+index bc15139..6a00382 100644
+--- a/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
++++ b/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
+@@ -1,6 +1,8 @@
+ import { Inject, NgModule } from '@angular/core';
++import { CommonModule } from '@angular/common';
++import { FormsModule } from '@angular/forms';
+ import { ROUTES, RouterModule } from '@angular/router';
+-import { NbCardModule, NbSpinnerModule } from '@nebular/theme';
++import { NbButtonModule, NbCardModule, NbInputModule, NbSelectModule, NbSpinnerModule } from '@nebular/theme';
+ import { TranslateModule } from '@ngx-translate/core';
+ import { BookmarkQueryParamsResolver, PageRouteRegistryService } from '@gauzy/ui-core/core';
+ import {
+@@ -14,11 +16,17 @@ import {
+ import { createActivityRoutes } from './activity.routes';
+ import { ActivityLayoutComponent } from './layout/layout.component';
+ import { AppUrlActivityComponent } from './app-url-activity/app-url-activity.component';
++import { AppUsageComponent } from './app-usage/app-usage.component';
+ 
+ @NgModule({
+ 	imports: [
++		CommonModule,
++		FormsModule,
+ 		RouterModule.forChild([]),
++		NbButtonModule,
+ 		NbCardModule,
++		NbInputModule,
++		NbSelectModule,
+ 		NbSpinnerModule,
+ 		TranslateModule.forChild(),
+ 		ActivityItemModule,
+@@ -27,7 +35,7 @@ import { AppUrlActivityComponent } from './app-url-activity/app-url-activity.com
+ 		NoDataMessageModule,
+ 		SharedModule
+ 	],
+-	declarations: [ActivityLayoutComponent, AppUrlActivityComponent],
++	declarations: [ActivityLayoutComponent, AppUrlActivityComponent, AppUsageComponent],
+ 	providers: [
+ 		{
+ 			provide: ROUTES,
+@@ -78,6 +86,17 @@ export class ActivityModule {
+ 			loadChildren: () => import('@gauzy/plugin-videos-ui').then((m) => m.VideoUiModule)
+ 		});
+ 
++		// Register App Usage Page Routes — running time vs on-screen time.
++		this._pageRouteRegistryService.registerPageRoute({
++			location: 'time-activity-sections',
++			path: 'app-usage',
++			component: AppUsageComponent,
++			data: {
++				title: 'App usage',
++				type: 'app-usage'
++			}
++		});
++
+ 		// Register App Activity Page Routes
+ 		this._pageRouteRegistryService.registerPageRoute({
+ 			location: 'time-activity-sections',
+diff --git a/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html
+new file mode 100644
+index 0000000..ebabe12
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html
+@@ -0,0 +1,76 @@
++<nb-card class="app-usage">
++	<nb-card-header>
++		<div class="filters">
++			<nb-select size="small" [(selected)]="employeeId" (selectedChange)="load()" placeholder="Employee">
++				<nb-option *ngFor="let e of employees" [value]="e.id">{{ e.label }}</nb-option>
++			</nb-select>
++			<input nbInput fieldSize="small" type="date" [(ngModel)]="date" (change)="load()" />
++			<button nbButton size="small" (click)="load()">Refresh</button>
++		</div>
++	</nb-card-header>
++
++	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
++		<p class="text-hint">
++			<b>Running</b> is how long the process existed — background services included.
++			<b>On screen</b> is how long its window actually held focus. They are different
++			measurements: a database can run all day without anyone looking at it.
++		</p>
++
++		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
++
++		<table class="table" *ngIf="rows.length || backgroundRows.length">
++			<thead>
++				<tr>
++					<th>App</th>
++					<th class="num">Running</th>
++					<th class="num">On screen</th>
++					<th class="num">Share of screen time</th>
++				</tr>
++			</thead>
++			<tbody>
++				<tr *ngFor="let r of rows">
++					<td>{{ r.title }}</td>
++					<td class="num muted">{{ fmt(r.runningSeconds) }}</td>
++					<td class="num strong">{{ fmt(r.onScreenSeconds) }}</td>
++					<td class="num">
++						<span class="bar" [style.width.%]="sharePct(r)"></span>
++						<span class="pct">{{ sharePct(r) | number: '1.0-0' }}%</span>
++					</td>
++				</tr>
++
++				<!-- Everything that never held focus, collapsed to one line. Listing
++				     twenty services individually buries the four apps that matter. -->
++				<tr *ngIf="backgroundRows.length && !showBackground" class="background-row">
++					<td>
++						<span class="muted">{{ backgroundNames }}</span>
++						<button nbButton ghost size="tiny" (click)="showBackground = true">show all</button>
++					</td>
++					<td class="num muted">{{ fmt(backgroundRunning) }}</td>
++					<td class="num muted">0</td>
++					<td class="num muted">0%</td>
++				</tr>
++				<ng-container *ngIf="showBackground">
++					<tr *ngFor="let r of backgroundRows" class="background-row">
++						<td class="muted">{{ r.title }}</td>
++						<td class="num muted">{{ fmt(r.runningSeconds) }}</td>
++						<td class="num muted">0</td>
++						<td class="num muted">0%</td>
++					</tr>
++					<tr>
++						<td colspan="4">
++							<button nbButton ghost size="tiny" (click)="showBackground = false">
++								collapse background processes
++							</button>
++						</td>
++					</tr>
++				</ng-container>
++			</tbody>
++		</table>
++
++		<p class="text-hint mt-2" *ngIf="backgroundRows.length">
++			{{ backgroundRows.length }} background process(es) ran without ever being on screen. They are
++			tracked deliberately — headless work is invisible to other trackers — but they are not
++			something the employee was looking at, so they carry no share.
++		</p>
++	</nb-card-body>
++</nb-card>
+diff --git a/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.scss b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.scss
+new file mode 100644
+index 0000000..c079929
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.scss
+@@ -0,0 +1,62 @@
++.app-usage {
++	--bar: #2a78d6;
++	--ink-muted: rgba(0, 0, 0, 0.55);
++
++	.filters {
++		display: flex;
++		gap: 0.75rem;
++		align-items: center;
++		flex-wrap: wrap;
++	}
++
++	// Wide tables scroll inside the card rather than pushing the page sideways.
++	.table {
++		width: 100%;
++
++		th.num,
++		td.num {
++			text-align: right;
++			white-space: nowrap;
++		}
++		// Numbers align on the decimal by sharing one glyph width, so columns
++		// scan vertically instead of jittering.
++		td.num {
++			font-variant-numeric: tabular-nums;
++		}
++		td.strong {
++			font-weight: 600;
++		}
++		td.muted,
++		.muted {
++			color: var(--ink-muted);
++		}
++	}
++
++	// The share bar sits behind the number rather than in its own column, so the
++	// table stays four columns wide and the magnitude reads at a glance.
++	.bar {
++		display: inline-block;
++		height: 8px;
++		border-radius: 2px;
++		background: var(--bar);
++		margin-right: 0.5rem;
++		vertical-align: middle;
++		min-width: 2px;
++		max-width: 120px;
++	}
++	.pct {
++		display: inline-block;
++		min-width: 2.5rem;
++		font-variant-numeric: tabular-nums;
++	}
++
++	.background-row td {
++		font-size: 0.9em;
++	}
++}
++
++:host-context([data-theme='dark']) .app-usage,
++:host-context(.nb-theme-dark) .app-usage {
++	--bar: #4c94e8;
++	--ink-muted: rgba(255, 255, 255, 0.7);
++}
+diff --git a/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts
+new file mode 100644
+index 0000000..91db748
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts
+@@ -0,0 +1,173 @@
++import { Component, OnInit } from '@angular/core';
++import { HttpClient } from '@angular/common/http';
++import { Store } from '@gauzy/ui-core/core';
++import { firstValueFrom } from 'rxjs';
++
++/**
++ * App usage — running time versus on-screen time.
++ *
++ * Exists because Gauzy's own Apps tab answers a different question than it
++ * appears to. The tracker records every RUNNING process, headless services
++ * included, and each one is posted with the full slot duration. So `containerd`,
++ * `postgres` and `node` all accumulate exactly as much duration as the browser
++ * somebody actually used, and the percentage on that tab — an app's share of the
++ * summed durations — collapses towards 1/(number of apps) for everything. With
++ * 21 apps running, every app reads about 4.8% no matter how the day was spent.
++ *
++ * That is not a defect in the capture. Recording background processes is the
++ * reason this tracker exists; neither ActivityShow nor Gauzy's own agent sees
++ * them. But "was running" and "was being used" are different measurements and
++ * should not share a column.
++ *
++ * This tab separates them. Running time comes from the activity duration;
++ * on-screen time comes from `foregroundSeconds`, sampled while the window held
++ * focus. Only one window has focus at a time, so on-screen seconds are
++ * non-overlapping — which is what makes them comparable between apps and safe
++ * to express as a share of the day.
++ */
++interface AppRow {
++	title: string;
++	runningSeconds: number;
++	onScreenSeconds: number;
++}
++
++@Component({
++	selector: 'ga-app-usage',
++	templateUrl: './app-usage.component.html',
++	styleUrls: ['./app-usage.component.scss'],
++	standalone: false
++})
++export class AppUsageComponent implements OnInit {
++	public rows: AppRow[] = [];
++	public backgroundRows: AppRow[] = [];
++	public loading = true;
++	public error = '';
++	/**
++	 * Today in LOCAL time. `toISOString()` is UTC, so before 05:30 IST it names
++	 * yesterday and the page opens on an empty day.
++	 */
++	public date = (() => {
++		const d = new Date();
++		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
++	})();
++	public employeeId = '';
++	public employees: { id: string; label: string }[] = [];
++	/** Collapse the never-on-screen services into one line by default. */
++	public showBackground = false;
++
++	constructor(
++		private readonly http: HttpClient,
++		private readonly store: Store
++	) {}
++
++	async ngOnInit(): Promise<void> {
++		await this.loadEmployees();
++		await this.load();
++	}
++
++	private async loadEmployees(): Promise<void> {
++		try {
++			const res: any = await firstValueFrom(
++				this.http.get(
++					`/api/employee?where[tenantId]=${this.store.user?.tenantId}` +
++						`&where[organizationId]=${this.store.selectedOrganization?.id}&relations[0]=user`
++				)
++			);
++			this.employees = (res?.items || res || []).map((e: any) => ({
++				id: e.id,
++				label:
++					e.user?.name ||
++					[e.user?.firstName, e.user?.lastName].filter(Boolean).join(' ') ||
++					e.user?.email ||
++					e.id.slice(0, 8)
++			}));
++			// Default to the SIGNED-IN user's own employee record, not employees[0].
++			// The API returns employees in an arbitrary order, and on a fresh
++			// install most of them have never run a tracker — so picking the first
++			// one lands on an empty report and reads as "the feature is broken"
++			// rather than "you are looking at someone who isn't tracked".
++			if (!this.employeeId) {
++				const mine = this.store.user?.employeeId;
++				this.employeeId =
++					(mine && this.employees.some((e) => e.id === mine) && mine) || this.employees[0]?.id || '';
++			}
++		} catch {
++			this.employees = [];
++		}
++	}
++
++	public async load(): Promise<void> {
++		this.loading = true;
++		this.error = '';
++		this.rows = [];
++		this.backgroundRows = [];
++		try {
++			// Read the tracker's own published daily summary, NOT the activity
++			// list. Gauzy's activity endpoint is hard-capped at 30 rows in its
++			// controller and strips any limit you pass, so a day of per-app
++			// activity cannot be read through it — it returns 30 rows out of
++			// several thousand and reports minutes where there were hours. The
++			// aggregating /activity/daily endpoint is complete but drops
++			// metaData, where foreground seconds live. So the tracker publishes
++			// the totals it already has into the employee's own record.
++			const res: any = await firstValueFrom(
++				this.http.get(
++					`/api/employee-settings?where[employeeId]=${this.employeeId}` +
++						`&where[tenantId]=${this.store.user?.tenantId}` +
++						`&where[organizationId]=${this.store.selectedOrganization?.id}`
++				)
++			);
++			const items = Array.isArray(res) ? res : res?.items || [];
++			// One settings row per employee; the tracker publishes its daily
++			// summary under `usage` on that same row.
++			const usage = items[items.length - 1]?.data?.usage;
++			const apps = usage?.date === this.date ? usage.apps || {} : {};
++			const all: AppRow[] = Object.entries(apps).map(([title, v]: [string, any]) => ({
++				title,
++				runningSeconds: Number(v?.r || 0),
++				onScreenSeconds: Number(v?.s || 0)
++			}));
++			this.rows = all.filter((r) => r.onScreenSeconds > 0).sort((a, b) => b.onScreenSeconds - a.onScreenSeconds);
++			this.backgroundRows = all
++				.filter((r) => r.onScreenSeconds === 0)
++				.sort((a, b) => b.runningSeconds - a.runningSeconds);
++			if (!all.length) {
++				this.error =
++					'No usage recorded for this employee on this date. Totals are published by the ' +
++					'tracker itself, so a machine that was not running the tracker that day has none.';
++			}
++		} catch (e: any) {
++			this.error = `Could not load usage (HTTP ${e?.status || '?'}).`;
++		} finally {
++			this.loading = false;
++		}
++	}
++
++	/** "3h 30m" / "57m" / "0" — compact, and never a bare number of seconds. */
++	public fmt(secs: number): string {
++		if (!secs) return '0';
++		const h = Math.floor(secs / 3600);
++		const m = Math.round((secs % 3600) / 60);
++		if (h && m) return `${h}h ${m}m`;
++		if (h) return `${h}h`;
++		return `${m}m`;
++	}
++
++	public get backgroundNames(): string {
++		const names = this.backgroundRows.map((r) => r.title);
++		return names.length > 4 ? `${names.slice(0, 4).join(', ')}, +${names.length - 4} more` : names.join(', ');
++	}
++
++	public get backgroundRunning(): number {
++		return this.backgroundRows.reduce((t, r) => Math.max(t, r.runningSeconds), 0);
++	}
++
++	public get totalOnScreen(): number {
++		return this.rows.reduce((t, r) => t + r.onScreenSeconds, 0);
++	}
++
++	public sharePct(row: AppRow): number {
++		const total = this.totalOnScreen;
++		return total ? (row.onScreenSeconds / total) * 100 : 0;
++	}
++}
+diff --git a/apps/gauzy/src/app/pages/employees/activity/layout/layout.component.ts b/apps/gauzy/src/app/pages/employees/activity/layout/layout.component.ts
+index 340de28..5c1dd1e 100644
+--- a/apps/gauzy/src/app/pages/employees/activity/layout/layout.component.ts
++++ b/apps/gauzy/src/app/pages/employees/activity/layout/layout.component.ts
+@@ -89,6 +89,26 @@ export class ActivityLayoutComponent implements OnInit, OnDestroy {
+ 			permissions: [PermissionsEnum.TIME_TRACKER, PermissionsEnum.TIME_TRACKING_DASHBOARD] // The permissions required to display the tab
+ 		});
+ 
++		// Register the app usage tab — running time vs on-screen time.
++		//
++		// Sits before the built-in Apps tab because it answers the question that
++		// tab appears to answer. Gauzy's Apps percentage is an app's share of the
++		// summed durations of every tracked process, and this tracker records
++		// headless services too, so every app converges on 1/(number of apps)
++		// regardless of use. Screen time is the honest measure.
++		this._pageTabRegistryService.registerPageTab({
++			tabsetId: this.tabsetId,
++			tabId: 'app-usage',
++			tabsetType: 'route',
++			tabTitle: () => 'App usage',
++			responsive: true,
++			route: '/pages/employees/activity/app-usage',
++			queryParamsHandling: 'merge' as QueryParamsHandling,
++			activeLinkOptions: { exact: false },
++			order: 4,
++			permissions: [PermissionsEnum.TIME_TRACKER, PermissionsEnum.TIME_TRACKING_DASHBOARD]
++		});
++
+ 		// Register the app activity tab
+ 		this._pageTabRegistryService.registerPageTab({
+ 			tabsetId: this.tabsetId, // The identifier for the tabset
+@@ -99,7 +119,7 @@ export class ActivityLayoutComponent implements OnInit, OnDestroy {
+ 			route: '/pages/employees/activity/apps', // The route for the tab
+ 			queryParamsHandling: 'merge' as QueryParamsHandling,
+ 			activeLinkOptions: { exact: false }, // The options for the active link
+-			order: 4, // The order of the tab
++			order: 5, // The order of the tab
+ 			permissions: [PermissionsEnum.TIME_TRACKER, PermissionsEnum.TIME_TRACKING_DASHBOARD] // The permissions required to display the tab
+ 		});
+ 
+@@ -113,7 +133,7 @@ export class ActivityLayoutComponent implements OnInit, OnDestroy {
+ 			route: '/pages/employees/activity/urls', // The route for the tab
+ 			queryParamsHandling: 'merge' as QueryParamsHandling,
+ 			activeLinkOptions: { exact: false }, // The options for the active link
+-			order: 5, // The order of the tab
++			order: 6, // The order of the tab
+ 			permissions: [PermissionsEnum.TIME_TRACKER, PermissionsEnum.TIME_TRACKING_DASHBOARD] // The permissions required to display the tab
+ 		});
+ 	}
+diff --git a/apps/gauzy/src/app/pages/employees/employees-routing.module.ts b/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
+index 6259e5e..6e76b2d 100644
+--- a/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
++++ b/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
+@@ -2,6 +2,7 @@ import { NgModule } from '@angular/core';
+ import { Routes, RouterModule } from '@angular/router';
+ import { PermissionsEnum } from '@gauzy/contracts';
+ import { InviteGuard, PermissionsGuard } from '@gauzy/ui-core/core';
++import { DateRangePickerResolver } from '@gauzy/ui-core/shared';
+ import { EmployeesComponent } from './employees.component';
+ import { ManageEmployeeInviteComponent } from './manage-employee-invite/manage-employee-invite.component';
+ import { EditEmployeeComponent } from './edit-employee/edit-employee.component';
+@@ -163,6 +164,32 @@ const routes: Routes = [
+ 	{
+ 		path: 'activity',
+ 		loadChildren: () => import('./activity/activity.module').then((m) => m.ActivityModule)
++	},
++	{
++		// Hourly productivity chart. Its own page rather than a settings tab —
++		// it is a report read regularly, not a setting changed occasionally.
++		path: 'productivity',
++		loadChildren: () => import('./productivity/productivity.module').then((m) => m.ProductivityModule),
++		data: {
++			// Use the dashboard's own header selectors rather than adding a second
++			// employee dropdown and date field inside the page. The date picker is
++			// locked to a single day because the chart is an hour-by-hour view —
++			// a week range has no meaning on a 24-bar axis.
++			selectors: {
++				project: false,
++				employee: true,
++				date: true,
++				organization: true
++			},
++			datePicker: {
++				unitOfTime: 'day',
++				isLockDatePicker: true,
++				isSaveDatePicker: true,
++				isSingleDatePicker: true,
++				isDisableFutureDate: true
++			}
++		},
++		resolve: { dates: DateRangePickerResolver }
+ 	}
+ ];
+ 
+diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html
+new file mode 100644
+index 0000000..39f71bc
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html
+@@ -0,0 +1,82 @@
++<nb-card class="productivity">
++	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
++		<!-- Legend always present: identity is never colour alone. -->
++		<div class="chart-legend">
++			<span><i class="sw productive"></i>Productive</span>
++			<span><i class="sw neutral"></i>Neutral</span>
++			<span><i class="sw unproductive"></i>Unproductive</span>
++			<span><i class="sw idle"></i>Idle</span>
++		</div>
++
++		<div *ngIf="note" class="text-hint">{{ note }}</div>
++
++		<div class="chart-scroll" *ngIf="bars.length">
++			<svg class="chart" [attr.viewBox]="'0 0 ' + bars.length * 40 + ' 130'"
++				preserveAspectRatio="xMinYMin meet" role="img"
++				aria-label="Percentage of each hour spent productive, neutral, unproductive or idle">
++				<g class="grid">
++					<line *ngFor="let g of [0, 25, 50, 75, 100]" x1="0" [attr.x2]="bars.length * 40" [attr.y1]="g"
++						[attr.y2]="g" />
++					<text *ngFor="let g of [0, 50, 100]" x="0" [attr.y]="g - 1">{{ 100 - g }}%</text>
++				</g>
++				<g *ngFor="let b of bars; let i = index" [attr.transform]="'translate(' + i * 40 + ',0)'">
++					<rect class="seg productive" x="8" width="22" [attr.y]="segY(b, 'productive')"
++						[attr.height]="b.productive" rx="1">
++						<title>{{ b.label }} — Productive {{ b.productive | number: '1.0-0' }}%</title>
++					</rect>
++					<rect class="seg neutral" x="8" width="22" [attr.y]="segY(b, 'neutral')" [attr.height]="b.neutral"
++						rx="1">
++						<title>{{ b.label }} — Neutral {{ b.neutral | number: '1.0-0' }}%</title>
++					</rect>
++					<rect class="seg unproductive" x="8" width="22" [attr.y]="segY(b, 'unproductive')"
++						[attr.height]="b.unproductive" rx="1">
++						<title>{{ b.label }} — Unproductive {{ b.unproductive | number: '1.0-0' }}%</title>
++					</rect>
++					<rect class="seg idle" x="8" width="22" [attr.y]="segY(b, 'idle')" [attr.height]="b.idle" rx="1">
++						<title>{{ b.label }} — Idle {{ b.idle | number: '1.0-0' }}% ({{ b.trackedMinutes }} min tracked)</title>
++					</rect>
++					<text class="xlabel" x="19" y="112">{{ b.label }}</text>
++				</g>
++			</svg>
++		</div>
++
++		<!-- Table view: the numbers never depend on colour. -->
++		<table class="table mt-3" *ngIf="bars.length">
++			<thead>
++				<tr>
++					<th>Hour</th>
++					<th>Productive</th>
++					<th>Neutral</th>
++					<th>Unproductive</th>
++					<th>Idle</th>
++					<th>Tracked</th>
++				</tr>
++			</thead>
++			<tbody>
++				<tr *ngFor="let b of bars">
++					<td>{{ b.label }}</td>
++					<td>{{ b.productive | number: '1.0-0' }}%</td>
++					<td>{{ b.neutral | number: '1.0-0' }}%</td>
++					<td>{{ b.unproductive | number: '1.0-0' }}%</td>
++					<td>{{ b.idle | number: '1.0-0' }}%</td>
++					<td>{{ b.trackedMinutes }} min</td>
++				</tr>
++				<tr class="totals">
++					<td><b>Day average</b></td>
++					<td><b>{{ dayAverage().productive | number: '1.0-0' }}%</b></td>
++					<td><b>{{ dayAverage().neutral | number: '1.0-0' }}%</b></td>
++					<td><b>{{ dayAverage().unproductive | number: '1.0-0' }}%</b></td>
++					<td><b>{{ dayAverage().idle | number: '1.0-0' }}%</b></td>
++					<td></td>
++				</tr>
++			</tbody>
++		</table>
++
++		<p class="text-hint mt-2" *ngIf="bars.length">
++			Idle is measured from the tracked time itself — the seconds in each hour with no keyboard,
++			mouse or (where enabled) media activity. The active remainder is split by which app was
++			<b>on screen</b>, since only one window holds focus at a time. Hours with no tracked time are
++			omitted rather than drawn empty.
++		</p>
++	</nb-card-body>
++</nb-card>
+diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss
+new file mode 100644
+index 0000000..fc5b3d9
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss
+@@ -0,0 +1,95 @@
++// Chart palette. Both modes were validated with the dataviz palette checker
++// against the surfaces they actually render on (#ffffff light, #222b45 dark):
++// lightness band, chroma floor, CVD separation, normal-vision floor and
++// contrast vs surface all pass. Dark is its own set of steps, not a flip of
++// light — an automatic inversion fails the lightness band.
++.productivity {
++	--productive: #0f8f5f;
++	--neutral: #2a78d6;
++	--unproductive: #c62f2f;
++	--idle: #7a5ea8;
++	--grid: rgba(0, 0, 0, 0.12);
++	--ink-muted: rgba(0, 0, 0, 0.55);
++
++	.chart-filters {
++		display: flex;
++		gap: 0.75rem;
++		align-items: center;
++		flex-wrap: wrap;
++		margin-bottom: 0.75rem;
++	}
++
++	.chart-legend {
++		display: flex;
++		gap: 1.25rem;
++		flex-wrap: wrap;
++		margin-bottom: 0.5rem;
++		font-size: 0.85rem;
++		// Labels stay in ink, never the series colour; the swatch carries identity.
++		color: var(--ink-muted);
++
++		.sw {
++			display: inline-block;
++			width: 10px;
++			height: 10px;
++			border-radius: 2px;
++			margin-right: 0.4rem;
++			vertical-align: middle;
++		}
++		.sw.productive { background: var(--productive); }
++		.sw.neutral { background: var(--neutral); }
++		.sw.unproductive { background: var(--unproductive); }
++		.sw.idle { background: var(--idle); }
++	}
++
++	// Wide days scroll inside the chart rather than pushing the page sideways.
++	.chart-scroll {
++		overflow-x: auto;
++		padding-bottom: 0.25rem;
++	}
++
++	.chart {
++		min-width: 100%;
++		height: 300px;
++
++		.grid line {
++			stroke: var(--grid);
++			stroke-width: 0.4;
++		}
++		.grid text {
++			font-size: 4px;
++			fill: var(--ink-muted);
++		}
++		.xlabel {
++			font-size: 5px;
++			fill: var(--ink-muted);
++			text-anchor: middle;
++		}
++		// A 2px surface-coloured gap between stacked segments, so adjacent
++		// fills read as separate blocks without an outline.
++		.seg {
++			stroke: var(--card-background-color, #fff);
++			stroke-width: 0.6;
++		}
++		.seg.productive { fill: var(--productive); }
++		.seg.neutral { fill: var(--neutral); }
++		.seg.unproductive { fill: var(--unproductive); }
++		.seg.idle { fill: var(--idle); }
++		.seg:hover { opacity: 0.85; }
++	}
++
++	.totals td {
++		border-top: 2px solid var(--grid);
++	}
++}
++
++// Dark mode: separately chosen steps, validated against #222b45.
++:host-context([data-theme='dark']) .tracker-chart,
++:host-context(.nb-theme-dark) .productivity {
++	--productive: #1da572;
++	--neutral: #4c94e8;
++	--unproductive: #e05a5a;
++	--idle: #9079cc;
++	--grid: rgba(255, 255, 255, 0.16);
++	--ink-muted: rgba(255, 255, 255, 0.7);
++}
+diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts
+new file mode 100644
+index 0000000..c10bfd5
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts
+@@ -0,0 +1,228 @@
++import { Component, OnDestroy, OnInit } from '@angular/core';
++import { HttpClient } from '@angular/common/http';
++import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
++import { DateRangePickerBuilderService, Store } from '@gauzy/ui-core/core';
++import { combineLatest, firstValueFrom } from 'rxjs';
++import { debounceTime, tap } from 'rxjs/operators';
++
++/**
++ * Hourly productivity — a stacked bar per hour of the day.
++ *
++ * Its own page in the sidebar rather than a tab under Settings, because it is a
++ * report an admin reads regularly, not a setting they change occasionally.
++ *
++ * Two sources, because neither alone can answer the question:
++ *
++ *   time slots -> `duration` and `overall` per bucket. The ONLY honest source of
++ *                 idle time: `overall` is the seconds actually active, so idle is
++ *                 the remainder.
++ *   activities -> per-app `metaData.foregroundSeconds`, which splits the active
++ *                 time by productivity category.
++ *
++ * An activity's own `duration` is NOT a usable weight: the tracker posts every
++ * running process with the full slot duration, so on a machine running twenty
++ * processes they sum to twenty times the wall clock. Foreground seconds are
++ * non-overlapping — only one window holds focus — which is what makes a
++ * percentage meaningful.
++ */
++interface HourBar {
++	hour: number;
++	label: string;
++	productive: number;
++	neutral: number;
++	unproductive: number;
++	idle: number;
++	trackedMinutes: number;
++}
++
++@UntilDestroy({ checkProperties: true })
++@Component({
++	selector: 'ga-productivity',
++	templateUrl: './productivity.component.html',
++	styleUrls: ['./productivity.component.scss'],
++	standalone: false
++})
++export class ProductivityComponent implements OnInit, OnDestroy {
++	public loading = false;
++	public note = '';
++	/**
++	 * Today in LOCAL time. `toISOString()` is UTC, so before 05:30 IST it names
++	 * yesterday and the page opens on an empty day.
++	 */
++	public date = (() => {
++		const d = new Date();
++		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
++	})();
++	public employeeId = '';
++	public bars: HourBar[] = [];
++
++	private categories: Record<string, string> = {};
++
++	constructor(
++		private readonly http: HttpClient,
++		private readonly store: Store,
++		private readonly dateRangePickerBuilderService: DateRangePickerBuilderService
++	) {}
++
++	/**
++	 * Driven by Gauzy's OWN header selectors, not by pickers of its own.
++	 *
++	 * The page previously carried a second employee dropdown and date field,
++	 * which meant choosing the employee twice — once in the header, once in the
++	 * page — and the two could disagree. Reading the shared selectors means this
++	 * page behaves like every other report in the dashboard, and the header's
++	 * date picker is configured to single-day mode for this route.
++	 */
++	ngOnInit(): void {
++		combineLatest([this.store.selectedEmployee$, this.dateRangePickerBuilderService.selectedDateRange$])
++			.pipe(
++				// The two selectors settle independently on load; without this the
++				// page would fire a request for each, the first with a stale value.
++				debounceTime(300),
++				tap(([employee, range]) => {
++					// "All employees" clears the selection — fall back to the
++					// signed-in user rather than showing nothing.
++					this.employeeId = employee?.id || this.store.user?.employeeId || '';
++					const start = range?.startDate ? new Date(range.startDate) : new Date();
++					this.date = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(
++						start.getDate()
++					).padStart(2, '0')}`;
++					this.load();
++				}),
++				untilDestroyed(this)
++			)
++			.subscribe();
++	}
++
++	ngOnDestroy(): void {}
++
++
++	public async load(): Promise<void> {
++		if (!this.employeeId || !this.date) return;
++		this.loading = true;
++		this.note = '';
++		this.bars = [];
++		try {
++			// Everything comes from the tracker's own published summary.
++			//
++			// The obvious sources cannot serve this. Gauzy's activity endpoint is
++			// hard-capped at 30 rows in its controller and strips any limit you
++			// pass; of the 30 it returns, almost none carry foreground seconds,
++			// so every hour collapsed to Neutral and the whole chart rendered
++			// blue. The time-slot endpoint is capped the same way — 33 of 303
++			// slots — so even idle was computed from a tenth of the day. The
++			// tracker has both numbers already and publishes them per hour.
++			const res: any = await firstValueFrom(
++				this.http.get(
++					`/api/employee-settings?where[employeeId]=${this.employeeId}` +
++						`&where[tenantId]=${this.store.user?.tenantId}` +
++						`&where[organizationId]=${this.store.selectedOrganization?.id}`
++				)
++			);
++			const items = Array.isArray(res) ? res : res?.items || [];
++			const data = items[items.length - 1]?.data || {};
++			const dept = data.department_id;
++			this.categories = (dept && data.app_categories?.[dept]) || {};
++
++			const usage = data.usage;
++			const hours = usage?.date === this.date ? usage.hours || {} : {};
++
++			const bars: HourBar[] = [];
++			for (let h = 0; h < 24; h++) {
++				const key = String(h).padStart(2, '0');
++				const hb = hours[key];
++				if (!hb || !hb.wall) continue;
++				// An hour cannot hold more than 3600 seconds. Gauzy stores both
++				// per-post time slots AND aggregated 10-minute buckets, so summing
++				// slot durations double-counts — a backfilled hour could read 112
++				// tracked minutes. The tracker's own accounting is correct; this
++				// cap keeps historical or externally-written data honest too.
++				const wall = Math.min(hb.wall, 3600);
++				const active = Math.min(hb.active || 0, wall);
++				const idle = Math.max(0, Math.min(100, ((wall - active) / wall) * 100));
++				const activePct = 100 - idle;
++				const fg: Record<string, number> = { Productive: 0, Neutral: 0, Unproductive: 0 };
++				for (const [app, secs] of Object.entries(hb.apps || {})) {
++					const cat = this.categorise(app);
++					if (fg[cat] !== undefined) fg[cat] += Number(secs || 0);
++				}
++				const total = fg.Productive + fg.Neutral + fg.Unproductive;
++				// No focused window all hour — a headless build, or a locked screen
++				// still registering input — leaves nothing to split the active time
++				// by, so it falls to Neutral rather than inflating Productive.
++				const share = (c: string) =>
++					total ? (fg[c] / total) * activePct : c === 'Neutral' ? activePct : 0;
++				bars.push({
++					hour: h,
++					label: `${key}:00`,
++					productive: share('Productive'),
++					neutral: share('Neutral'),
++					unproductive: share('Unproductive'),
++					idle,
++					trackedMinutes: Math.round(wall / 60)
++				});
++			}
++			this.bars = bars;
++			if (!bars.length) {
++				this.note =
++					'No tracked time for this employee on this date. Hourly totals are published by the ' +
++					'tracker, so a machine not running it that day has none.';
++			} else if (!Object.keys(this.categories).length) {
++				this.note =
++					'No apps classified for this employee\u2019s department, so active time shows as Neutral. ' +
++					'Classify apps under Settings \u2192 Tracker Settings \u2192 App productivity.';
++			}
++		} catch (e: any) {
++			this.note = `Could not load usage (HTTP ${e?.status || '?'}).`;
++		} finally {
++			this.loading = false;
++		}
++	}
++
++	/**
++	 * Category for a process name.
++	 *
++	 * Exact match first, then the LONGEST classified name contained in the
++	 * process name. Exact-only matching looked correct and quietly failed in
++	 * practice: an admin classifies "terminal", the tracker reports
++	 * "gnome-terminal-server", nothing matches and the time silently lands in
++	 * Neutral — indistinguishable from not having classified it at all.
++	 *
++	 * Longest-wins matters because short names are substrings of unrelated ones:
++	 * "code" appears inside "codex". Preferring the longest match, and letting an
++	 * exact entry beat any partial, means classifying "codex" explicitly always
++	 * overrides the accidental "code" hit.
++	 */
++	public categorise(title: string): string {
++		const name = (title || '').toLowerCase();
++		if (!name) return 'Neutral';
++		if (this.categories[name]) return this.categories[name];
++		let best = '';
++		for (const key of Object.keys(this.categories)) {
++			if (key && name.includes(key) && key.length > best.length) best = key;
++		}
++		return best ? this.categories[best] : 'Neutral';
++	}
++
++	/** y for a stacked segment in a 0–100 viewBox measured from the top. */
++	public segY(bar: HourBar, seg: 'productive' | 'neutral' | 'unproductive' | 'idle'): number {
++		const order: Array<keyof HourBar> = ['productive', 'neutral', 'unproductive', 'idle'];
++		let acc = 0;
++		for (const k of order) {
++			if (k === seg) break;
++			acc += bar[k] as number;
++		}
++		return 100 - acc - (bar[seg] as number);
++	}
++
++	public dayAverage(): { productive: number; neutral: number; unproductive: number; idle: number } {
++		const n = this.bars.length || 1;
++		const sum = (k: keyof HourBar) => this.bars.reduce((t, b) => t + (b[k] as number), 0) / n;
++		return {
++			productive: sum('productive'),
++			neutral: sum('neutral'),
++			unproductive: sum('unproductive'),
++			idle: sum('idle')
++		};
++	}
++}
+diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.module.ts b/apps/gauzy/src/app/pages/employees/productivity/productivity.module.ts
+new file mode 100644
+index 0000000..221e703
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.module.ts
+@@ -0,0 +1,29 @@
++import { NgModule } from '@angular/core';
++import { CommonModule } from '@angular/common';
++import { FormsModule } from '@angular/forms';
++import { RouterModule } from '@angular/router';
++import { NbButtonModule, NbCardModule, NbInputModule, NbSelectModule, NbSpinnerModule } from '@nebular/theme';
++import { TranslateModule } from '@ngx-translate/core';
++import { ProductivityComponent } from './productivity.component';
++
++/**
++ * Hourly productivity page.
++ *
++ * Routing is declared inline: one component, no children, so a separate routing
++ * module would carry a single route and nothing else.
++ */
++@NgModule({
++	imports: [
++		CommonModule,
++		FormsModule,
++		RouterModule.forChild([{ path: '', component: ProductivityComponent }]),
++		TranslateModule.forChild(),
++		NbButtonModule,
++		NbCardModule,
++		NbInputModule,
++		NbSelectModule,
++		NbSpinnerModule
++	],
++	declarations: [ProductivityComponent]
++})
++export class ProductivityModule {}
 diff --git a/apps/gauzy/src/app/pages/settings/settings.routes.ts b/apps/gauzy/src/app/pages/settings/settings.routes.ts
 index f1d279c..0079e68 100644
 --- a/apps/gauzy/src/app/pages/settings/settings.routes.ts
@@ -20,17 +960,16 @@ index f1d279c..0079e68 100644
  					loadChildren: () =>
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
 new file mode 100644
-index 0000000..10cfc38
+index 0000000..251f9a7
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,125 @@
 +<nb-card>
 +	<nb-card-header class="d-flex justify-content-between align-items-center">
 +		<h5 class="mb-0">Tracker Settings</h5>
 +		<nb-button-group size="small">
 +			<button nbButton [class.selected]="tab === 'employees'" (click)="tab = 'employees'">Employees</button>
 +			<button nbButton [class.selected]="tab === 'apps'" (click)="tab = 'apps'">App productivity</button>
-+			<button nbButton [class.selected]="tab === 'chart'" (click)="tab = 'chart'; loadChart()">Hourly chart</button>
 +		</nb-button-group>
 +	</nb-card-header>
 +
@@ -49,6 +988,7 @@ index 0000000..10cfc38
 +					<tr>
 +						<th>Employee</th>
 +						<th>Screenshot every</th>
++						<th>Idle after</th>
 +						<th>Media counts as idle</th>
 +						<th>Blur screenshots</th>
 +						<th>Department</th>
@@ -61,6 +1001,11 @@ index 0000000..10cfc38
 +						<td>
 +							<nb-select size="small" [(selected)]="row.interval">
 +								<nb-option *ngFor="let i of intervals" [value]="i.value">{{ i.label }}</nb-option>
++							</nb-select>
++						</td>
++						<td>
++							<nb-select size="small" [(selected)]="row.idleAfter">
++								<nb-option *ngFor="let i of idleAfters" [value]="i.value">{{ i.label }}</nb-option>
 +							</nb-select>
 +						</td>
 +						<td><nb-toggle [(checked)]="row.mediaIdle"></nb-toggle></td>
@@ -76,7 +1021,7 @@ index 0000000..10cfc38
 +						</td>
 +					</tr>
 +					<tr *ngIf="!employees.length && !loading">
-+						<td colspan="6" class="text-hint">No employees found.</td>
++						<td colspan="7" class="text-hint">No employees found.</td>
 +					</tr>
 +				</tbody>
 +			</table>
@@ -141,101 +1086,6 @@ index 0000000..10cfc38
 +					</tr>
 +				</tbody>
 +			</table>
-+		</div>
-+		<!-- Hourly productivity -->
-+		<div *ngIf="tab === 'chart'" class="tracker-chart">
-+			<div class="chart-filters">
-+				<nb-select size="small" [(selected)]="chartEmployeeId" (selectedChange)="loadChart()"
-+					placeholder="Employee">
-+					<nb-option *ngFor="let e of employees" [value]="e.id">{{ e.label }}</nb-option>
-+				</nb-select>
-+				<input nbInput fieldSize="small" type="date" [(ngModel)]="chartDate" (change)="loadChart()" />
-+				<button nbButton size="small" (click)="loadChart()">Refresh</button>
-+			</div>
-+
-+			<!-- Legend: identity is never colour alone. -->
-+			<div class="chart-legend">
-+				<span><i class="sw productive"></i>Productive</span>
-+				<span><i class="sw neutral"></i>Neutral</span>
-+				<span><i class="sw unproductive"></i>Unproductive</span>
-+				<span><i class="sw idle"></i>Idle</span>
-+			</div>
-+
-+			<div *ngIf="chartNote" class="text-hint">{{ chartNote }}</div>
-+			<div *ngIf="chartLoading" class="text-hint">Loading…</div>
-+
-+			<div class="chart-scroll" *ngIf="chartBars.length">
-+				<svg class="chart" [attr.viewBox]="'0 0 ' + chartBars.length * 40 + ' 130'"
-+					preserveAspectRatio="xMinYMin meet" role="img"
-+					aria-label="Percentage of each hour spent productive, neutral, unproductive or idle">
-+					<!-- recessive gridlines at 0/25/50/75/100% -->
-+					<g class="grid">
-+						<line *ngFor="let g of [0, 25, 50, 75, 100]" x1="0" [attr.x2]="chartBars.length * 40"
-+							[attr.y1]="g" [attr.y2]="g" />
-+						<text *ngFor="let g of [0, 50, 100]" x="0" [attr.y]="g - 1">{{ 100 - g }}%</text>
-+					</g>
-+					<g *ngFor="let b of chartBars; let i = index" [attr.transform]="'translate(' + i * 40 + ',0)'">
-+						<!-- 2px surface gap between segments; ends rounded on the stack -->
-+						<rect class="seg productive" x="8" width="22" [attr.y]="segY(b, 'productive')"
-+							[attr.height]="b.productive" rx="1">
-+							<title>{{ b.label }} — Productive {{ b.productive | number: '1.0-0' }}%</title>
-+						</rect>
-+						<rect class="seg neutral" x="8" width="22" [attr.y]="segY(b, 'neutral')"
-+							[attr.height]="b.neutral" rx="1">
-+							<title>{{ b.label }} — Neutral {{ b.neutral | number: '1.0-0' }}%</title>
-+						</rect>
-+						<rect class="seg unproductive" x="8" width="22" [attr.y]="segY(b, 'unproductive')"
-+							[attr.height]="b.unproductive" rx="1">
-+							<title>{{ b.label }} — Unproductive {{ b.unproductive | number: '1.0-0' }}%</title>
-+						</rect>
-+						<rect class="seg idle" x="8" width="22" [attr.y]="segY(b, 'idle')" [attr.height]="b.idle"
-+							rx="1">
-+							<title>{{ b.label }} — Idle {{ b.idle | number: '1.0-0' }}% ({{ b.trackedMinutes }} min tracked)</title>
-+						</rect>
-+						<text class="xlabel" x="19" y="112">{{ b.label }}</text>
-+					</g>
-+				</svg>
-+			</div>
-+
-+			<!-- Table view: the relief for the sub-3:1 contrast warning, and the
-+			     answer for anyone who cannot read the chart at all. -->
-+			<table class="table mt-3" *ngIf="chartBars.length">
-+				<thead>
-+					<tr>
-+						<th>Hour</th>
-+						<th>Productive</th>
-+						<th>Neutral</th>
-+						<th>Unproductive</th>
-+						<th>Idle</th>
-+						<th>Tracked</th>
-+					</tr>
-+				</thead>
-+				<tbody>
-+					<tr *ngFor="let b of chartBars">
-+						<td>{{ b.label }}</td>
-+						<td>{{ b.productive | number: '1.0-0' }}%</td>
-+						<td>{{ b.neutral | number: '1.0-0' }}%</td>
-+						<td>{{ b.unproductive | number: '1.0-0' }}%</td>
-+						<td>{{ b.idle | number: '1.0-0' }}%</td>
-+						<td>{{ b.trackedMinutes }} min</td>
-+					</tr>
-+					<tr class="totals">
-+						<td><b>Day average</b></td>
-+						<td><b>{{ dayTotals().productive | number: '1.0-0' }}%</b></td>
-+						<td><b>{{ dayTotals().neutral | number: '1.0-0' }}%</b></td>
-+						<td><b>{{ dayTotals().unproductive | number: '1.0-0' }}%</b></td>
-+						<td><b>{{ dayTotals().idle | number: '1.0-0' }}%</b></td>
-+						<td></td>
-+					</tr>
-+				</tbody>
-+			</table>
-+
-+			<p class="text-hint mt-2">
-+				Idle comes from the tracked time itself — the seconds in each hour with no keyboard, mouse
-+				or (where enabled) media activity. The active remainder is split by which app was
-+				<b>on screen</b>, since only one window has focus at a time. Hours with no tracked time are
-+				omitted rather than drawn as empty.
-+			</p>
 +		</div>
 +	</nb-card-body>
 +</nb-card>
@@ -342,10 +1192,10 @@ index 0000000..87300a0
 +}
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
 new file mode 100644
-index 0000000..fc587d7
+index 0000000..b5f5ccd
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,248 @@
 +import { Component, OnInit } from '@angular/core';
 +import { HttpClient } from '@angular/common/http';
 +import { Store } from '@gauzy/ui-core/core';
@@ -371,19 +1221,11 @@ index 0000000..fc587d7
 +	interval: string;
 +	mediaIdle: boolean;
 +	blur: boolean;
++	idleAfter: string;
 +	departmentId: string;
 +	settingId?: string;
-+}
-+
-+/** One hour's stacked bar: four shares that always total 100. */
-+interface HourBar {
-+	hour: number;
-+	label: string;
-+	productive: number;
-+	neutral: number;
-+	unproductive: number;
-+	idle: number;
-+	trackedMinutes: number;
++	/** The row's full data object, so a save preserves keys this page does not own. */
++	raw?: any;
 +}
 +
 +@Component({
@@ -393,14 +1235,8 @@ index 0000000..fc587d7
 +	standalone: false
 +})
 +export class TrackerSettingsComponent implements OnInit {
-+	public tab: 'employees' | 'apps' | 'chart' = 'employees';
++	public tab: 'employees' | 'apps' = 'employees';
 +
-+	// ---- productivity chart ----
-+	public chartEmployeeId = '';
-+	public chartDate = new Date().toISOString().slice(0, 10);
-+	public chartBars: HourBar[] = [];
-+	public chartLoading = false;
-+	public chartNote = '';
 +	public loading = true;
 +	public error = '';
 +	public saved = '';
@@ -417,6 +1253,21 @@ index 0000000..fc587d7
 +		{ value: '600', label: '10 minutes' }
 +	];
 +	public readonly categories = ['Productive', 'Neutral', 'Unproductive'];
++
++	/**
++	 * How long without keyboard or mouse before a moment counts as idle. The
++	 * employee stays "active" for this long after their last keystroke, so short
++	 * pauses for reading or thinking do not register — which is why the default
++	 * is generous. Tighten it for roles whose work is continuous input.
++	 */
++	public readonly idleAfters = [
++		{ value: '', label: 'Default (3 min)' },
++		{ value: '60', label: '1 minute' },
++		{ value: '120', label: '2 minutes' },
++		{ value: '180', label: '3 minutes' },
++		{ value: '300', label: '5 minutes' },
++		{ value: '600', label: '10 minutes' }
++	];
 +
 +	public appDept = '';
 +	public apps: { name: string; category: string }[] = [];
@@ -486,8 +1337,10 @@ index 0000000..fc587d7
 +					interval: data.screenshot_interval_seconds ? String(data.screenshot_interval_seconds) : '',
 +					mediaIdle: data.count_audio_as_active === false,
 +					blur: data.blur_screenshots === true,
++					idleAfter: data.idle_threshold_seconds ? String(data.idle_threshold_seconds) : '',
 +					departmentId: data.department_id || '',
-+					settingId: byEmployee[e.id]?.id
++					settingId: byEmployee[e.id]?.id,
++					raw: data
 +				};
 +			});
 +
@@ -518,7 +1371,14 @@ index 0000000..fc587d7
 +				entity: 'Employee',
 +				entityId: row.id,
 +				settingType: 'Custom',
++				// MERGE, never replace. POST to this endpoint is an upsert keyed on
++				// the employee and it overwrites `data` wholesale — there is one row
++				// per person, shared with the tracker, which publishes its daily
++				// usage summary under `usage`. Writing a bare object here would
++				// silently delete that summary, exactly as the tracker writing a
++				// bare object used to delete these settings.
 +				data: {
++					...(row.raw || {}),
 +					screenshot_interval_seconds: row.interval ? Number(row.interval) : null,
 +					// false means "media is idle for this person"; null means "no
 +					// opinion", leaving the workstation's own config to decide.
@@ -529,6 +1389,7 @@ index 0000000..fc587d7
 +					// promise to the employee, so an admin turning it on must
 +					// override a workstation config that left it off.
 +					blur_screenshots: row.blur ? true : null,
++					idle_threshold_seconds: row.idleAfter ? Number(row.idleAfter) : null,
 +					department_id: row.departmentId || null,
 +					app_categories: this.appCategories
 +				}
@@ -581,123 +1442,7 @@ index 0000000..fc587d7
 +		await this.persistCategories();
 +	}
 +
-+	// ---------------------------------------------------------------- chart --
-+	//
-+	// Two sources, because neither alone can answer the question:
-+	//
-+	//   time slots  -> `duration` and `overall` per bucket. This is the ONLY
-+	//                  honest source of idle time: overall is the seconds the
-+	//                  employee was actually active, so idle is the remainder.
-+	//   activities  -> per-app `metaData.foregroundSeconds`, which splits the
-+	//                  active time by category.
-+	//
-+	// An activity's own `duration` is NOT usable as a weight: the tracker posts
-+	// every running process with the full slot duration, so on a machine running
-+	// sixteen processes they sum to sixteen times the wall clock. Foreground
-+	// seconds are non-overlapping — only one window has focus at a time — which
-+	// is what makes them a valid basis for a percentage.
 +
-+	public async loadChart(): Promise<void> {
-+		const emp = this.chartEmployeeId || this.employees[0]?.id;
-+		if (!emp || !this.chartDate) return;
-+		this.chartLoading = true;
-+		this.chartNote = '';
-+		this.chartBars = [];
-+		try {
-+			const from = encodeURIComponent(`${this.chartDate} 00:00:00`);
-+			const to = encodeURIComponent(`${this.chartDate} 23:59:59`);
-+			const scope = `${this.scope}&organizationId=${this.store.selectedOrganization?.id}&tenantId=${this.store.user?.tenantId}`;
-+			const [slots, acts]: any[] = await Promise.all([
-+				firstValueFrom(
-+					this.http.get(
-+						`/api/timesheet/time-slot?startDate=${from}&endDate=${to}&${scope}&employeeIds[0]=${emp}`
-+					)
-+				),
-+				firstValueFrom(
-+					this.http.get(
-+						`/api/timesheet/activity?activityType=APP&startDate=${from}&endDate=${to}&${scope}&employeeIds[0]=${emp}`
-+					)
-+				)
-+			]);
-+
-+			const dept = this.employees.find((e) => e.id === emp)?.departmentId || '';
-+			const cats = this.appCategories[dept] || {};
-+
-+			// wall + active seconds per hour, from the slots
-+			const wall: number[] = new Array(24).fill(0);
-+			const active: number[] = new Array(24).fill(0);
-+			for (const s of slots?.items || slots || []) {
-+				const h = new Date(s.startedAt).getHours();
-+				wall[h] += Number(s.duration || 0);
-+				active[h] += Number(s.overall || 0);
-+			}
-+
-+			// foreground seconds per hour per category, from the activities
-+			const fg: Record<string, number>[] = Array.from({ length: 24 }, () => ({
-+				Productive: 0,
-+				Neutral: 0,
-+				Unproductive: 0
-+			}));
-+			for (const a of acts?.items || acts || []) {
-+				const meta = Array.isArray(a.metaData) ? a.metaData[0] : a.metaData;
-+				const secs = Number(meta?.foregroundSeconds || 0);
-+				if (!secs) continue;
-+				const h = Number(String(a.time || '00:00:00').slice(0, 2));
-+				const cat = cats[String(a.title || '').toLowerCase()] || 'Neutral';
-+				if (fg[h][cat] !== undefined) fg[h][cat] += secs;
-+			}
-+
-+			const bars: HourBar[] = [];
-+			for (let h = 0; h < 24; h++) {
-+				if (!wall[h]) continue;
-+				const idlePct = Math.max(0, Math.min(100, ((wall[h] - active[h]) / wall[h]) * 100));
-+				const activePct = 100 - idlePct;
-+				const totalFg = fg[h].Productive + fg[h].Neutral + fg[h].Unproductive;
-+				// With no focused window all hour — a headless build, or a locked
-+				// screen that still registered input — there is nothing to split
-+				// the active time by, so it falls to Neutral rather than being
-+				// silently dropped or inflating Productive.
-+				const share = (c: string) => (totalFg ? (fg[h][c] / totalFg) * activePct : c === 'Neutral' ? activePct : 0);
-+				bars.push({
-+					hour: h,
-+					label: `${String(h).padStart(2, '0')}:00`,
-+					productive: share('Productive'),
-+					neutral: share('Neutral'),
-+					unproductive: share('Unproductive'),
-+					idle: idlePct,
-+					trackedMinutes: Math.round(wall[h] / 60)
-+				});
-+			}
-+			this.chartBars = bars;
-+			if (!bars.length) this.chartNote = 'No tracked time for this employee on this date.';
-+		} catch (e: any) {
-+			this.chartNote = `Could not load activity (HTTP ${e?.status || '?'}).`;
-+		} finally {
-+			this.chartLoading = false;
-+		}
-+	}
-+
-+	/** y for a stacked segment, in a 0–100 viewBox measured from the top. */
-+	public segY(bar: HourBar, seg: 'productive' | 'neutral' | 'unproductive' | 'idle'): number {
-+		const order: Array<keyof HourBar> = ['productive', 'neutral', 'unproductive', 'idle'];
-+		let acc = 0;
-+		for (const k of order) {
-+			if (k === seg) break;
-+			acc += bar[k] as number;
-+		}
-+		return 100 - acc - (bar[seg] as number);
-+	}
-+
-+	public dayTotals(): { productive: number; neutral: number; unproductive: number; idle: number } {
-+		const n = this.chartBars.length || 1;
-+		const sum = (k: keyof HourBar) => this.chartBars.reduce((t, b) => t + (b[k] as number), 0) / n;
-+		return {
-+			productive: sum('productive'),
-+			neutral: sum('neutral'),
-+			unproductive: sum('unproductive'),
-+			idle: sum('idle')
-+		};
-+	}
 +}
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts
 new file mode 100644
@@ -824,10 +1569,33 @@ index 2104306..da5547a 100644
  			this._toastrService.error(error.message || 'An error occurred while fetching counts.');
  		} finally {
 diff --git a/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts b/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
-index b5301e3..512b3ae 100644
+index b5301e3..09ba6db 100644
 --- a/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
 +++ b/packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts
-@@ -1194,6 +1194,23 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
+@@ -536,6 +536,22 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
+ 							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
+ 						}
+ 					},
++					{
++						// Gated on the same feature key as Time & Activity so the
++						// sidebar trim in config/minimal-tracking-features.sql keeps
++						// them together rather than leaving one visible and the
++						// other hidden.
++						id: 'employees-productivity',
++						title: 'Productivity',
++						icon: 'fas fa-chart-column',
++						link: '/pages/employees/productivity',
++						pathMatch: 'prefix',
++						data: {
++							translationKey: 'MENU.PRODUCTIVITY',
++							permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
++							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
++						}
++					},
+ 					{
+ 						id: 'employees-timesheets',
+ 						title: 'Timesheets',
+@@ -1194,6 +1210,23 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
  							featureKey: FeatureEnum.FEATURE_ROLES_PERMISSION
  						}
  					},
@@ -852,7 +1620,7 @@ index b5301e3..512b3ae 100644
  						id: 'settings-danger-zone',
  						title: 'Danger Zone',
 diff --git a/packages/ui-core/i18n/assets/i18n/en.json b/packages/ui-core/i18n/assets/i18n/en.json
-index 6ba729d..5cb7447 100644
+index 6ba729d..598606e 100644
 --- a/packages/ui-core/i18n/assets/i18n/en.json
 +++ b/packages/ui-core/i18n/assets/i18n/en.json
 @@ -915,6 +915,7 @@
@@ -863,6 +1631,14 @@ index 6ba729d..5cb7447 100644
  		"DANGER_ZONE": "Danger Zone",
  		"FILE_STORAGE": "File Storage",
  		"INVITE_PEOPLE": "Invite People",
+@@ -1178,6 +1179,7 @@
+ 		"JOBS_SEARCH": "Browse",
+ 		"JOBS_MATCHING": "Matching",
+ 		"TEAM_TASKS": "Team's Tasks",
++		"PRODUCTIVITY": "Productivity",
+ 		"TIME_ACTIVITY": "Time & Activity",
+ 		"TIMESHEETS": "Timesheets",
+ 		"SCHEDULES": "Schedules",
 diff --git a/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html b/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html
 index d7a318a..4a3110b 100644
 --- a/packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html

@@ -107,6 +107,28 @@ def categories_for(cfg, client):
     return (apps if isinstance(apps, dict) else {}), "Neutral"
 
 
+def categorise(name, cats, default_cat):
+    """Category for a process name: exact match, then the LONGEST classified
+    name contained in it.
+
+    Exact-only matching fails quietly in practice — an admin classifies
+    "terminal", the tracker reports "gnome-terminal-server", nothing matches and
+    the time lands in the default category, indistinguishable from never having
+    been classified. Longest-wins keeps short names from hijacking longer ones:
+    "code" is inside "codex", so classifying "codex" explicitly always beats the
+    accidental partial hit."""
+    key = (name or "").lower()
+    if not key:
+        return default_cat
+    if key in cats:
+        return cats[key]
+    best = ""
+    for k in cats:
+        if k and k in key and len(k) > len(best):
+            best = k
+    return cats[best] if best else default_cat
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
@@ -148,7 +170,7 @@ def main():
             t = tracked.get(name)
             line += (pt.fmt_duration(t) if t else "-").ljust(16)
         if show_cats:
-            cat = cats.get(name.lower(), default_cat)
+            cat = categorise(name, cats, default_cat)
             line += cat.ljust(16)
             # Total the TRACKED time, not uptime: a database that has been up
             # for nine hours is not nine hours of anybody's working day.

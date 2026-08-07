@@ -12,7 +12,7 @@ foot of this document. What is done:
 | Admin surface (`admin/settings_app.py`) | **Built** — separate app, decision 6 = option B |
 | #3 departments + app categories | **Built** — matched by process name, applied at report time |
 | #4 Manager/HR roles | **Written** — run `config/roles-manager-hr.sql` |
-| #5 website URLs | **Closed** — page titles only, no work needed |
+| #5 website URLs | **Reopened** — full URLs now wanted; see `browser-url-capture.md`, awaiting approval |
 
 The tracker defaults are unchanged, so a box with no settings service behaves
 exactly as before. Point `settings_url` at a service returning
@@ -157,9 +157,16 @@ reports.
   domain** parsed from the title where possible.
 
 **Notes / decisions**
-- Do you need the **full URL**, or is the **site/domain + page title** enough?
-  (Domain-only can often be derived from the title/tab; full path needs an
-  extension.)
+- Answered 2026-08-07: **full URLs are wanted.** Titles alone are not enough —
+  the requirement is `https://hrportal.youngglobes.com/...`, not
+  `HR Portal - Young Globes`.
+- That commits us to a **browser extension**, and the detail moved to its own
+  document: **`docs/browser-url-capture.md`** — architecture, automatic
+  installation per browser, what it exposes, and six decisions still needing
+  sign-off. Awaiting approval; nothing built.
+- Correction to the earlier note above: **domain cannot be derived from the
+  title.** Chrome titles are `Page title - Google Chrome` and carry no hostname,
+  so "domain-only" was never a cheaper middle option.
 
 ---
 
