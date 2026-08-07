@@ -20,16 +20,17 @@ index f1d279c..0079e68 100644
  					loadChildren: () =>
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
 new file mode 100644
-index 0000000..aa16635
+index 0000000..10cfc38
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,215 @@
 +<nb-card>
 +	<nb-card-header class="d-flex justify-content-between align-items-center">
 +		<h5 class="mb-0">Tracker Settings</h5>
 +		<nb-button-group size="small">
 +			<button nbButton [class.selected]="tab === 'employees'" (click)="tab = 'employees'">Employees</button>
 +			<button nbButton [class.selected]="tab === 'apps'" (click)="tab = 'apps'">App productivity</button>
++			<button nbButton [class.selected]="tab === 'chart'" (click)="tab = 'chart'; loadChart()">Hourly chart</button>
 +		</nb-button-group>
 +	</nb-card-header>
 +
@@ -49,6 +50,7 @@ index 0000000..aa16635
 +						<th>Employee</th>
 +						<th>Screenshot every</th>
 +						<th>Media counts as idle</th>
++						<th>Blur screenshots</th>
 +						<th>Department</th>
 +						<th></th>
 +					</tr>
@@ -62,6 +64,7 @@ index 0000000..aa16635
 +							</nb-select>
 +						</td>
 +						<td><nb-toggle [(checked)]="row.mediaIdle"></nb-toggle></td>
++						<td><nb-toggle [(checked)]="row.blur"></nb-toggle></td>
 +						<td>
 +							<nb-select size="small" [(selected)]="row.departmentId">
 +								<nb-option value="">—</nb-option>
@@ -73,7 +76,7 @@ index 0000000..aa16635
 +						</td>
 +					</tr>
 +					<tr *ngIf="!employees.length && !loading">
-+						<td colspan="5" class="text-hint">No employees found.</td>
++						<td colspan="6" class="text-hint">No employees found.</td>
 +					</tr>
 +				</tbody>
 +			</table>
@@ -139,14 +142,210 @@ index 0000000..aa16635
 +				</tbody>
 +			</table>
 +		</div>
++		<!-- Hourly productivity -->
++		<div *ngIf="tab === 'chart'" class="tracker-chart">
++			<div class="chart-filters">
++				<nb-select size="small" [(selected)]="chartEmployeeId" (selectedChange)="loadChart()"
++					placeholder="Employee">
++					<nb-option *ngFor="let e of employees" [value]="e.id">{{ e.label }}</nb-option>
++				</nb-select>
++				<input nbInput fieldSize="small" type="date" [(ngModel)]="chartDate" (change)="loadChart()" />
++				<button nbButton size="small" (click)="loadChart()">Refresh</button>
++			</div>
++
++			<!-- Legend: identity is never colour alone. -->
++			<div class="chart-legend">
++				<span><i class="sw productive"></i>Productive</span>
++				<span><i class="sw neutral"></i>Neutral</span>
++				<span><i class="sw unproductive"></i>Unproductive</span>
++				<span><i class="sw idle"></i>Idle</span>
++			</div>
++
++			<div *ngIf="chartNote" class="text-hint">{{ chartNote }}</div>
++			<div *ngIf="chartLoading" class="text-hint">Loading…</div>
++
++			<div class="chart-scroll" *ngIf="chartBars.length">
++				<svg class="chart" [attr.viewBox]="'0 0 ' + chartBars.length * 40 + ' 130'"
++					preserveAspectRatio="xMinYMin meet" role="img"
++					aria-label="Percentage of each hour spent productive, neutral, unproductive or idle">
++					<!-- recessive gridlines at 0/25/50/75/100% -->
++					<g class="grid">
++						<line *ngFor="let g of [0, 25, 50, 75, 100]" x1="0" [attr.x2]="chartBars.length * 40"
++							[attr.y1]="g" [attr.y2]="g" />
++						<text *ngFor="let g of [0, 50, 100]" x="0" [attr.y]="g - 1">{{ 100 - g }}%</text>
++					</g>
++					<g *ngFor="let b of chartBars; let i = index" [attr.transform]="'translate(' + i * 40 + ',0)'">
++						<!-- 2px surface gap between segments; ends rounded on the stack -->
++						<rect class="seg productive" x="8" width="22" [attr.y]="segY(b, 'productive')"
++							[attr.height]="b.productive" rx="1">
++							<title>{{ b.label }} — Productive {{ b.productive | number: '1.0-0' }}%</title>
++						</rect>
++						<rect class="seg neutral" x="8" width="22" [attr.y]="segY(b, 'neutral')"
++							[attr.height]="b.neutral" rx="1">
++							<title>{{ b.label }} — Neutral {{ b.neutral | number: '1.0-0' }}%</title>
++						</rect>
++						<rect class="seg unproductive" x="8" width="22" [attr.y]="segY(b, 'unproductive')"
++							[attr.height]="b.unproductive" rx="1">
++							<title>{{ b.label }} — Unproductive {{ b.unproductive | number: '1.0-0' }}%</title>
++						</rect>
++						<rect class="seg idle" x="8" width="22" [attr.y]="segY(b, 'idle')" [attr.height]="b.idle"
++							rx="1">
++							<title>{{ b.label }} — Idle {{ b.idle | number: '1.0-0' }}% ({{ b.trackedMinutes }} min tracked)</title>
++						</rect>
++						<text class="xlabel" x="19" y="112">{{ b.label }}</text>
++					</g>
++				</svg>
++			</div>
++
++			<!-- Table view: the relief for the sub-3:1 contrast warning, and the
++			     answer for anyone who cannot read the chart at all. -->
++			<table class="table mt-3" *ngIf="chartBars.length">
++				<thead>
++					<tr>
++						<th>Hour</th>
++						<th>Productive</th>
++						<th>Neutral</th>
++						<th>Unproductive</th>
++						<th>Idle</th>
++						<th>Tracked</th>
++					</tr>
++				</thead>
++				<tbody>
++					<tr *ngFor="let b of chartBars">
++						<td>{{ b.label }}</td>
++						<td>{{ b.productive | number: '1.0-0' }}%</td>
++						<td>{{ b.neutral | number: '1.0-0' }}%</td>
++						<td>{{ b.unproductive | number: '1.0-0' }}%</td>
++						<td>{{ b.idle | number: '1.0-0' }}%</td>
++						<td>{{ b.trackedMinutes }} min</td>
++					</tr>
++					<tr class="totals">
++						<td><b>Day average</b></td>
++						<td><b>{{ dayTotals().productive | number: '1.0-0' }}%</b></td>
++						<td><b>{{ dayTotals().neutral | number: '1.0-0' }}%</b></td>
++						<td><b>{{ dayTotals().unproductive | number: '1.0-0' }}%</b></td>
++						<td><b>{{ dayTotals().idle | number: '1.0-0' }}%</b></td>
++						<td></td>
++					</tr>
++				</tbody>
++			</table>
++
++			<p class="text-hint mt-2">
++				Idle comes from the tracked time itself — the seconds in each hour with no keyboard, mouse
++				or (where enabled) media activity. The active remainder is split by which app was
++				<b>on screen</b>, since only one window has focus at a time. Hours with no tracked time are
++				omitted rather than drawn as empty.
++			</p>
++		</div>
 +	</nb-card-body>
 +</nb-card>
+diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.scss b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.scss
+new file mode 100644
+index 0000000..87300a0
+--- /dev/null
++++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.scss
+@@ -0,0 +1,95 @@
++// Chart palette. Both modes were validated with the dataviz palette checker
++// against the surfaces they actually render on (#ffffff light, #222b45 dark):
++// lightness band, chroma floor, CVD separation, normal-vision floor and
++// contrast vs surface all pass. Dark is its own set of steps, not a flip of
++// light — an automatic inversion fails the lightness band.
++.tracker-chart {
++	--productive: #0f8f5f;
++	--neutral: #2a78d6;
++	--unproductive: #c62f2f;
++	--idle: #7a5ea8;
++	--grid: rgba(0, 0, 0, 0.12);
++	--ink-muted: rgba(0, 0, 0, 0.55);
++
++	.chart-filters {
++		display: flex;
++		gap: 0.75rem;
++		align-items: center;
++		flex-wrap: wrap;
++		margin-bottom: 0.75rem;
++	}
++
++	.chart-legend {
++		display: flex;
++		gap: 1.25rem;
++		flex-wrap: wrap;
++		margin-bottom: 0.5rem;
++		font-size: 0.85rem;
++		// Labels stay in ink, never the series colour; the swatch carries identity.
++		color: var(--ink-muted);
++
++		.sw {
++			display: inline-block;
++			width: 10px;
++			height: 10px;
++			border-radius: 2px;
++			margin-right: 0.4rem;
++			vertical-align: middle;
++		}
++		.sw.productive { background: var(--productive); }
++		.sw.neutral { background: var(--neutral); }
++		.sw.unproductive { background: var(--unproductive); }
++		.sw.idle { background: var(--idle); }
++	}
++
++	// Wide days scroll inside the chart rather than pushing the page sideways.
++	.chart-scroll {
++		overflow-x: auto;
++		padding-bottom: 0.25rem;
++	}
++
++	.chart {
++		min-width: 100%;
++		height: 300px;
++
++		.grid line {
++			stroke: var(--grid);
++			stroke-width: 0.4;
++		}
++		.grid text {
++			font-size: 4px;
++			fill: var(--ink-muted);
++		}
++		.xlabel {
++			font-size: 5px;
++			fill: var(--ink-muted);
++			text-anchor: middle;
++		}
++		// A 2px surface-coloured gap between stacked segments, so adjacent
++		// fills read as separate blocks without an outline.
++		.seg {
++			stroke: var(--card-background-color, #fff);
++			stroke-width: 0.6;
++		}
++		.seg.productive { fill: var(--productive); }
++		.seg.neutral { fill: var(--neutral); }
++		.seg.unproductive { fill: var(--unproductive); }
++		.seg.idle { fill: var(--idle); }
++		.seg:hover { opacity: 0.85; }
++	}
++
++	.totals td {
++		border-top: 2px solid var(--grid);
++	}
++}
++
++// Dark mode: separately chosen steps, validated against #222b45.
++:host-context([data-theme='dark']) .tracker-chart,
++:host-context(.nb-theme-dark) .tracker-chart {
++	--productive: #1da572;
++	--neutral: #4c94e8;
++	--unproductive: #e05a5a;
++	--idle: #9079cc;
++	--grid: rgba(255, 255, 255, 0.16);
++	--ink-muted: rgba(255, 255, 255, 0.7);
++}
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
 new file mode 100644
-index 0000000..81b7a82
+index 0000000..fc587d7
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,353 @@
 +import { Component, OnInit } from '@angular/core';
 +import { HttpClient } from '@angular/common/http';
 +import { Store } from '@gauzy/ui-core/core';
@@ -171,17 +370,37 @@ index 0000000..81b7a82
 +	label: string;
 +	interval: string;
 +	mediaIdle: boolean;
++	blur: boolean;
 +	departmentId: string;
 +	settingId?: string;
++}
++
++/** One hour's stacked bar: four shares that always total 100. */
++interface HourBar {
++	hour: number;
++	label: string;
++	productive: number;
++	neutral: number;
++	unproductive: number;
++	idle: number;
++	trackedMinutes: number;
 +}
 +
 +@Component({
 +	selector: 'ga-tracker-settings',
 +	templateUrl: './tracker-settings.component.html',
++	styleUrls: ['./tracker-settings.component.scss'],
 +	standalone: false
 +})
 +export class TrackerSettingsComponent implements OnInit {
-+	public tab: 'employees' | 'apps' = 'employees';
++	public tab: 'employees' | 'apps' | 'chart' = 'employees';
++
++	// ---- productivity chart ----
++	public chartEmployeeId = '';
++	public chartDate = new Date().toISOString().slice(0, 10);
++	public chartBars: HourBar[] = [];
++	public chartLoading = false;
++	public chartNote = '';
 +	public loading = true;
 +	public error = '';
 +	public saved = '';
@@ -266,6 +485,7 @@ index 0000000..81b7a82
 +						e.id.slice(0, 8),
 +					interval: data.screenshot_interval_seconds ? String(data.screenshot_interval_seconds) : '',
 +					mediaIdle: data.count_audio_as_active === false,
++					blur: data.blur_screenshots === true,
 +					departmentId: data.department_id || '',
 +					settingId: byEmployee[e.id]?.id
 +				};
@@ -305,6 +525,10 @@ index 0000000..81b7a82
 +					// Sending true would overrule a machine that deliberately set
 +					// it false locally.
 +					count_audio_as_active: row.mediaIdle ? false : null,
++					// Unlike media-as-idle, true is meaningful here: blurring is a
++					// promise to the employee, so an admin turning it on must
++					// override a workstation config that left it off.
++					blur_screenshots: row.blur ? true : null,
 +					department_id: row.departmentId || null,
 +					app_categories: this.appCategories
 +				}
@@ -355,6 +579,124 @@ index 0000000..81b7a82
 +		delete this.appCategories[this.appDept][name];
 +		this.refreshApps();
 +		await this.persistCategories();
++	}
++
++	// ---------------------------------------------------------------- chart --
++	//
++	// Two sources, because neither alone can answer the question:
++	//
++	//   time slots  -> `duration` and `overall` per bucket. This is the ONLY
++	//                  honest source of idle time: overall is the seconds the
++	//                  employee was actually active, so idle is the remainder.
++	//   activities  -> per-app `metaData.foregroundSeconds`, which splits the
++	//                  active time by category.
++	//
++	// An activity's own `duration` is NOT usable as a weight: the tracker posts
++	// every running process with the full slot duration, so on a machine running
++	// sixteen processes they sum to sixteen times the wall clock. Foreground
++	// seconds are non-overlapping — only one window has focus at a time — which
++	// is what makes them a valid basis for a percentage.
++
++	public async loadChart(): Promise<void> {
++		const emp = this.chartEmployeeId || this.employees[0]?.id;
++		if (!emp || !this.chartDate) return;
++		this.chartLoading = true;
++		this.chartNote = '';
++		this.chartBars = [];
++		try {
++			const from = encodeURIComponent(`${this.chartDate} 00:00:00`);
++			const to = encodeURIComponent(`${this.chartDate} 23:59:59`);
++			const scope = `${this.scope}&organizationId=${this.store.selectedOrganization?.id}&tenantId=${this.store.user?.tenantId}`;
++			const [slots, acts]: any[] = await Promise.all([
++				firstValueFrom(
++					this.http.get(
++						`/api/timesheet/time-slot?startDate=${from}&endDate=${to}&${scope}&employeeIds[0]=${emp}`
++					)
++				),
++				firstValueFrom(
++					this.http.get(
++						`/api/timesheet/activity?activityType=APP&startDate=${from}&endDate=${to}&${scope}&employeeIds[0]=${emp}`
++					)
++				)
++			]);
++
++			const dept = this.employees.find((e) => e.id === emp)?.departmentId || '';
++			const cats = this.appCategories[dept] || {};
++
++			// wall + active seconds per hour, from the slots
++			const wall: number[] = new Array(24).fill(0);
++			const active: number[] = new Array(24).fill(0);
++			for (const s of slots?.items || slots || []) {
++				const h = new Date(s.startedAt).getHours();
++				wall[h] += Number(s.duration || 0);
++				active[h] += Number(s.overall || 0);
++			}
++
++			// foreground seconds per hour per category, from the activities
++			const fg: Record<string, number>[] = Array.from({ length: 24 }, () => ({
++				Productive: 0,
++				Neutral: 0,
++				Unproductive: 0
++			}));
++			for (const a of acts?.items || acts || []) {
++				const meta = Array.isArray(a.metaData) ? a.metaData[0] : a.metaData;
++				const secs = Number(meta?.foregroundSeconds || 0);
++				if (!secs) continue;
++				const h = Number(String(a.time || '00:00:00').slice(0, 2));
++				const cat = cats[String(a.title || '').toLowerCase()] || 'Neutral';
++				if (fg[h][cat] !== undefined) fg[h][cat] += secs;
++			}
++
++			const bars: HourBar[] = [];
++			for (let h = 0; h < 24; h++) {
++				if (!wall[h]) continue;
++				const idlePct = Math.max(0, Math.min(100, ((wall[h] - active[h]) / wall[h]) * 100));
++				const activePct = 100 - idlePct;
++				const totalFg = fg[h].Productive + fg[h].Neutral + fg[h].Unproductive;
++				// With no focused window all hour — a headless build, or a locked
++				// screen that still registered input — there is nothing to split
++				// the active time by, so it falls to Neutral rather than being
++				// silently dropped or inflating Productive.
++				const share = (c: string) => (totalFg ? (fg[h][c] / totalFg) * activePct : c === 'Neutral' ? activePct : 0);
++				bars.push({
++					hour: h,
++					label: `${String(h).padStart(2, '0')}:00`,
++					productive: share('Productive'),
++					neutral: share('Neutral'),
++					unproductive: share('Unproductive'),
++					idle: idlePct,
++					trackedMinutes: Math.round(wall[h] / 60)
++				});
++			}
++			this.chartBars = bars;
++			if (!bars.length) this.chartNote = 'No tracked time for this employee on this date.';
++		} catch (e: any) {
++			this.chartNote = `Could not load activity (HTTP ${e?.status || '?'}).`;
++		} finally {
++			this.chartLoading = false;
++		}
++	}
++
++	/** y for a stacked segment, in a 0–100 viewBox measured from the top. */
++	public segY(bar: HourBar, seg: 'productive' | 'neutral' | 'unproductive' | 'idle'): number {
++		const order: Array<keyof HourBar> = ['productive', 'neutral', 'unproductive', 'idle'];
++		let acc = 0;
++		for (const k of order) {
++			if (k === seg) break;
++			acc += bar[k] as number;
++		}
++		return 100 - acc - (bar[seg] as number);
++	}
++
++	public dayTotals(): { productive: number; neutral: number; unproductive: number; idle: number } {
++		const n = this.chartBars.length || 1;
++		const sum = (k: keyof HourBar) => this.chartBars.reduce((t, b) => t + (b[k] as number), 0) / n;
++		return {
++			productive: sum('productive'),
++			neutral: sum('neutral'),
++			unproductive: sum('unproductive'),
++			idle: sum('idle')
++		};
 +	}
 +}
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts

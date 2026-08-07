@@ -148,6 +148,15 @@ DEFAULT_CONFIG = {
     # scan intervals — see the cadence note in main() for why it cannot be
     # faster than, or out of step with, the slot interval.
     "screenshot_interval_seconds": 0,
+    # Blur captured screenshots past legibility before upload. Overridable per
+    # employee, so privacy can be granted to some staff and not others. The blur
+    # is applied HERE, before the image leaves the machine — a readable screen is
+    # never transmitted or stored, which is the difference between privacy and a
+    # dashboard that merely declines to show it.
+    "blur_screenshots": False,
+    # Downscale divisor. Higher blurs harder; 20 makes body text unreadable while
+    # window shapes stay recognisable.
+    "blur_strength": 20,
     # Where the screenshot on/off switch lives:
     #   "dashboard" : the employee's "Allow Screen Capture" toggle in Gauzy
     #                 (Employees -> employee -> Edit -> Settings) is the live
@@ -799,6 +808,53 @@ def _capture_via_extension(cfg):
     return data or None
 
 
+def blur_png(png, strength):
+    """PNG bytes blurred beyond legibility, or the original on any failure.
+
+    Monitoring versus privacy: an admin needs to see THAT someone is working and
+    roughly on what, not to read their messages, credentials or a customer's
+    personal data. Blurring keeps the shape of the screen — which window, which
+    layout, whether anything is happening — while destroying the text.
+
+    Implemented as downscale-then-upscale rather than a convolution kernel:
+    GdkPixbuf is already a dependency for capturing, it does the resampling in C,
+    and a box blur written in pure Python over a few million pixels would cost
+    more CPU each interval than the capture itself. Reducing to 1/strength and
+    stretching back is irreversible — the detail is gone from the file, not
+    merely hidden, so nothing can be recovered from the stored image.
+    """
+    if not png:
+        return png
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+
+        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+        loader.write(png)
+        loader.close()
+        pb = loader.get_pixbuf()
+        if pb is None:
+            return png
+        w, h = pb.get_width(), pb.get_height()
+        f = max(2, int(strength or 20))
+        small = pb.scale_simple(max(1, w // f), max(1, h // f),
+                                GdkPixbuf.InterpType.BILINEAR)
+        if small is None:
+            return png
+        big = small.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR)
+        if big is None:
+            return png
+        ok, buf = big.save_to_bufferv("png", [], [])
+        return bytes(buf) if ok else png
+    except Exception:
+        # Never fail the interval over a blur. But note the caller MUST treat a
+        # failure as "do not upload" rather than "upload the sharp original" —
+        # silently sending an unblurred screen would be the opposite of what the
+        # admin asked for.
+        return None
+
+
 def capture_screenshot(cfg):
     """PNG bytes of the whole screen, or None if capture is unavailable.
 
@@ -1407,6 +1463,13 @@ def main():
                 every_n = max(1, int(round(float(shot_secs) / interval)))
                 shot_due = (cycle % every_n == 0)
             shot = capture_screenshot(cfg) if (want_shot and shot_due) else None
+            # Blur before the image goes anywhere. If blurring fails the shot is
+            # DROPPED, never uploaded sharp — an employee promised a blurred
+            # screen must not have a readable one sent because a library threw.
+            blurred = False
+            if shot and setting(cfg, overrides, "blur_screenshots", False):
+                shot = blur_png(shot, setting(cfg, overrides, "blur_strength", 20))
+                blurred = shot is not None
             windows = list_windows()      # all open windows (X11 only; [] on Wayland)
             curr = scan_proc()
             rows = build_process_rows(prev, curr, interval, cfg, compiled, excluded,
@@ -1442,8 +1505,12 @@ def main():
                         # Say so rather than stay silent: an interval with no
                         # shot line otherwise looks like a capture failure.
                         shot_note = f" | no shot (every {shot_secs}s)"
+                    elif shot is None and setting(cfg, overrides, "blur_screenshots", False):
+                        shot_note = " | shot DROPPED (blur failed, not sent sharp)"
                     else:
                         shot_note = _upload_screenshot(client, cfg, shot, started, resp)
+                        if blurred:
+                            shot_note += " blurred"
                 log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
                          f"{len(rows)} apps, on-screen: {watching} | "
                          f"{len(tabs)} tabs{wins}{shot_note}")

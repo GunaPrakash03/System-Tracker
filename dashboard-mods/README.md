@@ -64,7 +64,16 @@ NODE_OPTIONS=--max-old-space-size=12288 yarn build:gauzy:prod
 # 4. Deploy: replace the served bundles in the running webapp container.
 #    No image rebuild needed — nginx serves /srv/gauzy.
 docker exec webapp sh -c 'rm -rf /srv/gauzy_old && cp -r /srv/gauzy /srv/gauzy_old'   # backup
-docker cp dist/apps/gauzy/. webapp:/srv/gauzy/
+
+# REPLACE the directory — do not copy over it. `docker cp` only overlays, so
+# copying onto the live directory leaves every previous build's hashed chunks in
+# place. A browser holding a cached index.html then loads the old runtime, which
+# resolves to an old chunk that is still sitting there, and the dashboard shows
+# the PREVIOUS build with no error at all — the deploy looks like it silently
+# did nothing. Staging into a new directory and swapping avoids that entirely.
+docker exec webapp sh -c 'rm -rf /srv/gauzy_new && mkdir -p /srv/gauzy_new'
+docker cp dist/apps/gauzy/. webapp:/srv/gauzy_new/
+docker exec webapp sh -c 'rm -rf /srv/gauzy && mv /srv/gauzy_new /srv/gauzy'
 
 # 5. Hard-reload the browser (Ctrl+Shift+R). Done.
 ```
