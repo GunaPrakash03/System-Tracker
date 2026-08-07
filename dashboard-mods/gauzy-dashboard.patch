@@ -20,10 +20,10 @@ index f1d279c..0079e68 100644
  					loadChildren: () =>
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
 new file mode 100644
-index 0000000..0e3e2a0
+index 0000000..aa16635
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.html
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,117 @@
 +<nb-card>
 +	<nb-card-header class="d-flex justify-content-between align-items-center">
 +		<h5 class="mb-0">Tracker Settings</h5>
@@ -87,12 +87,13 @@ index 0000000..0e3e2a0
 +		<!-- App productivity -->
 +		<div *ngIf="tab === 'apps'">
 +			<p class="text-hint">
++				Stored in Gauzy against each employee, so there is no separate service to run.
 +				Apps are matched on <b>process name</b> — what the tracker reports, such as
 +				<code>chrome</code>, <code>code</code> or <code>postgres</code>. The same app can be
 +				productive for one department and unproductive for another. Anything unclassified counts
 +				as Neutral.
 +			</p>
-+			<nb-select [(selected)]="appDept" (selectedChange)="loadApps()" placeholder="Department">
++			<nb-select [(selected)]="appDept" (selectedChange)="refreshApps()" placeholder="Department">
 +				<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
 +			</nb-select>
 +			<p *ngIf="!departments.length" class="text-hint mt-2">
@@ -142,28 +143,28 @@ index 0000000..0e3e2a0
 +</nb-card>
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
 new file mode 100644
-index 0000000..991d950
+index 0000000..81b7a82
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.component.ts
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,210 @@
 +import { Component, OnInit } from '@angular/core';
-+import { HttpClient, HttpHeaders } from '@angular/common/http';
++import { HttpClient } from '@angular/common/http';
 +import { Store } from '@gauzy/ui-core/core';
 +import { firstValueFrom } from 'rxjs';
 +
 +/**
-+ * System-Tracker settings, rendered inside the Gauzy settings shell.
++ * System-Tracker settings.
 + *
-+ * The data lives in the System-Tracker admin service, NOT in Gauzy — Gauzy has
-+ * no per-employee screenshot interval (its screenshotFrequency is
-+ * organisation-wide), no notion of media counting as idle, and no concept of an
-+ * app being productive within a particular department. This page is a thin
-+ * client over that service so those settings appear where an admin already
-+ * works, without inventing Gauzy entities for them.
++ * Everything here is stored in GAUZY ITSELF — in the generic `employee_setting`
++ * table, a per-employee row with a jsonb `data` column — and reached through
++ * Gauzy's own API with the session the dashboard already holds. There is no
++ * separate settings service, no second port and no extra process to keep alive.
 + *
-+ * The service verifies the caller's Gauzy token server-side and refuses anyone
-+ * who is not a SUPER_ADMIN. The permission guard on this route only decides
-+ * whether the menu entry is worth showing — it is not the access control.
++ * Gauzy has no field of its own for any of these: `screenshotFrequency` is
++ * organisation-wide rather than per employee, there is no notion of media
++ * counting as idle, and none of an app being productive within a department.
++ * The generic settings row is what lets all three live here without forking
++ * Gauzy's backend to add tables.
 + */
 +interface EmployeeRow {
 +	id: string;
@@ -171,6 +172,7 @@ index 0000000..991d950
 +	interval: string;
 +	mediaIdle: boolean;
 +	departmentId: string;
++	settingId?: string;
 +}
 +
 +@Component({
@@ -187,7 +189,7 @@ index 0000000..991d950
 +	public employees: EmployeeRow[] = [];
 +	public departments: { id: string; name: string }[] = [];
 +
-+	/** Intervals Gauzy itself offers, so the two agree. */
++	/** The intervals Gauzy itself offers, so the two agree. */
 +	public readonly intervals = [
 +		{ value: '', label: 'Default' },
 +		{ value: '60', label: '1 minute' },
@@ -202,20 +204,21 @@ index 0000000..991d950
 +	public newApp = '';
 +	public newAppCategory = 'Productive';
 +
++	/**
++	 * departmentId -> { processName: category }.
++	 *
++	 * Held on every employee's settings row rather than on the department,
++	 * because `organization_department` has no free-text or JSON column and
++	 * `tenant_setting` rejects keys other than its own. Writing the same map to
++	 * each employee is the price of not forking Gauzy's backend to add a table;
++	 * the map is small and this page is its only writer.
++	 */
++	private appCategories: Record<string, Record<string, string>> = {};
++
 +	constructor(private readonly http: HttpClient, private readonly store: Store) {}
 +
-+	/**
-+	 * Base URL of the admin service. Same host as the dashboard, fixed port —
-+	 * the service runs on each admin's own machine beside Gauzy, so deriving the
-+	 * host from the browser location keeps it correct whether that is localhost
-+	 * or a LAN address, without a build-time constant to forget to change.
-+	 */
-+	private get base(): string {
-+		return `${window.location.protocol}//${window.location.hostname}:8600`;
-+	}
-+
-+	private get headers(): HttpHeaders {
-+		return new HttpHeaders({ Authorization: `Bearer ${this.store.token}` });
++	private get scope(): string {
++		return `where[tenantId]=${this.store.user?.tenantId}&where[organizationId]=${this.store.selectedOrganization?.id}`;
 +	}
 +
 +	async ngOnInit(): Promise<void> {
@@ -226,112 +229,132 @@ index 0000000..991d950
 +		this.loading = true;
 +		this.error = '';
 +		try {
-+			const data: any = await firstValueFrom(
-+				this.http.get(`${this.base}/api/admin/state`, { headers: this.headers })
-+			);
-+			this.departments = data.departments || [];
-+			this.employees = (data.employees || []).map((e: any) => ({
-+				id: e.id,
-+				label: e.label,
-+				interval: e.screenshot_interval_seconds ? String(e.screenshot_interval_seconds) : '',
-+				mediaIdle: e.count_audio_as_active === false,
-+				departmentId: e.department_id || ''
++			const orgId = this.store.selectedOrganization?.id;
++			const tenantId = this.store.user?.tenantId;
++
++			const [emps, depts, settings]: any[] = await Promise.all([
++				firstValueFrom(
++					this.http.get(`/api/employee?${this.scope}&relations[0]=user`)
++				),
++				firstValueFrom(this.http.get(`/api/organization-department?${this.scope}`)),
++				firstValueFrom(this.http.get(`/api/employee-settings?${this.scope}`))
++			]);
++
++			this.departments = (depts?.items || depts || []).map((d: any) => ({
++				id: d.id,
++				name: d.name || '(unnamed)'
 +			}));
-+			if (!this.appDept && this.departments.length) {
-+				this.appDept = this.departments[0].id;
++
++			// Newest row wins: saving writes a fresh row rather than mutating the
++			// old one, so an employee accumulates history and only the last entry
++			// reflects what the admin currently intends.
++			const byEmployee: Record<string, any> = {};
++			for (const s of settings?.items || settings || []) {
++				if (s?.employeeId) byEmployee[s.employeeId] = s;
 +			}
-+			await this.loadApps();
++
++			this.employees = (emps?.items || emps || []).map((e: any) => {
++				const user = e.user || {};
++				const data = byEmployee[e.id]?.data || {};
++				if (data.app_categories) this.appCategories = data.app_categories;
++				return {
++					id: e.id,
++					label:
++						user.name ||
++						[user.firstName, user.lastName].filter(Boolean).join(' ') ||
++						user.email ||
++						e.id.slice(0, 8),
++					interval: data.screenshot_interval_seconds ? String(data.screenshot_interval_seconds) : '',
++					mediaIdle: data.count_audio_as_active === false,
++					departmentId: data.department_id || '',
++					settingId: byEmployee[e.id]?.id
++				};
++			});
++
++			if (!this.appDept && this.departments.length) this.appDept = this.departments[0].id;
++			this.refreshApps();
++			if (!orgId || !tenantId) {
++				this.error = 'No organization selected — pick one in the header first.';
++			}
 +		} catch (e: any) {
-+			// A 403 here means the signed-in user is not a super admin; anything
-+			// else almost always means the tracker admin service is not running.
-+			this.error =
-+				e?.status === 403
-+					? 'Super admin permission is required for these settings.'
-+					: `Cannot reach the tracker settings service on port 8600. Is it running? (${
-+							e?.status || 'no response'
-+					  })`;
++			this.error = `Could not load settings from Gauzy (HTTP ${e?.status || '?'}).`;
 +		} finally {
 +			this.loading = false;
 +		}
 +	}
 +
-+	public async loadApps(): Promise<void> {
-+		if (!this.appDept) {
-+			this.apps = [];
-+			return;
-+		}
-+		try {
-+			const data: any = await firstValueFrom(
-+				this.http.get(`${this.base}/api/categories?departmentId=${this.appDept}`, {
-+					headers: this.headers
-+				})
-+			);
-+			this.apps = Object.entries(data.apps || {}).map(([name, category]) => ({
-+				name,
-+				category: category as string
-+			}));
-+		} catch {
-+			this.apps = [];
-+		}
++	public refreshApps(): void {
++		const map = this.appCategories[this.appDept] || {};
++		this.apps = Object.entries(map).map(([name, category]) => ({ name, category }));
++	}
++
++	/** Write one employee's settings row. */
++	private async persist(row: EmployeeRow): Promise<void> {
++		await firstValueFrom(
++			this.http.post('/api/employee-settings', {
++				employeeId: row.id,
++				organizationId: this.store.selectedOrganization?.id,
++				tenantId: this.store.user?.tenantId,
++				entity: 'Employee',
++				entityId: row.id,
++				settingType: 'Custom',
++				data: {
++					screenshot_interval_seconds: row.interval ? Number(row.interval) : null,
++					// false means "media is idle for this person"; null means "no
++					// opinion", leaving the workstation's own config to decide.
++					// Sending true would overrule a machine that deliberately set
++					// it false locally.
++					count_audio_as_active: row.mediaIdle ? false : null,
++					department_id: row.departmentId || null,
++					app_categories: this.appCategories
++				}
++			})
++		);
 +	}
 +
 +	public async saveEmployee(row: EmployeeRow): Promise<void> {
 +		this.saved = '';
++		this.error = '';
 +		try {
-+			await firstValueFrom(
-+				this.http.post(
-+					`${this.base}/api/admin/employee`,
-+					{
-+						employee_id: row.id,
-+						screenshot_interval_seconds: row.interval ? Number(row.interval) : null,
-+						// false means "media is idle for this person"; null means
-+						// "no opinion", leaving the workstation's own config to
-+						// decide. Sending true would overrule a machine that
-+						// deliberately set it false locally.
-+						count_audio_as_active: row.mediaIdle ? false : null,
-+						department_id: row.departmentId || null
-+					},
-+					{ headers: this.headers }
-+				)
-+			);
++			await this.persist(row);
 +			this.saved = `Saved ${row.label}. The tracker applies it within 60 seconds.`;
-+		} catch {
-+			this.error = 'Could not save. Check the tracker settings service.';
++		} catch (e: any) {
++			this.error = `Could not save (HTTP ${e?.status || '?'}).`;
++		}
++	}
++
++	/**
++	 * App categories belong to a department, but are stored per employee, so a
++	 * change has to be written to everyone. Small N and this page is the only
++	 * writer, so a straightforward loop is enough.
++	 */
++	private async persistCategories(): Promise<void> {
++		this.saved = '';
++		this.error = '';
++		try {
++			for (const row of this.employees) {
++				await this.persist(row);
++			}
++			this.saved = 'Saved. The tracker applies it within 60 seconds.';
++		} catch (e: any) {
++			this.error = `Could not save (HTTP ${e?.status || '?'}).`;
 +		}
 +	}
 +
 +	public async saveApp(name: string, category: string): Promise<void> {
-+		if (!name || !this.appDept) return;
-+		this.saved = '';
-+		try {
-+			await firstValueFrom(
-+				this.http.post(
-+					`${this.base}/api/admin/app`,
-+					{ department_id: this.appDept, app_name: name, category },
-+					{ headers: this.headers }
-+				)
-+			);
-+			this.newApp = '';
-+			this.saved = `Saved ${name}.`;
-+			await this.loadApps();
-+		} catch {
-+			this.error = 'Could not save the app category.';
-+		}
++		const app = (name || '').trim().toLowerCase();
++		if (!app || !this.appDept) return;
++		this.appCategories[this.appDept] = { ...(this.appCategories[this.appDept] || {}), [app]: category };
++		this.newApp = '';
++		this.refreshApps();
++		await this.persistCategories();
 +	}
 +
 +	public async removeApp(name: string): Promise<void> {
-+		try {
-+			await firstValueFrom(
-+				this.http.post(
-+					`${this.base}/api/admin/app-delete`,
-+					{ department_id: this.appDept, app_name: name },
-+					{ headers: this.headers }
-+				)
-+			);
-+			await this.loadApps();
-+		} catch {
-+			this.error = 'Could not remove the app.';
-+		}
++		if (!this.appCategories[this.appDept]) return;
++		delete this.appCategories[this.appDept][name];
++		this.refreshApps();
++		await this.persistCategories();
 +	}
 +}
 diff --git a/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts b/apps/gauzy/src/app/pages/settings/tracker-settings/tracker-settings.module.ts

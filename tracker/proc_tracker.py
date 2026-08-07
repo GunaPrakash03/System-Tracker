@@ -124,12 +124,15 @@ DEFAULT_CONFIG = {
     # Gauzy has no per-employee field for either of the settings below — its
     # screenshotFrequency is organisation-wide — so the values come from a
     # settings surface outside the employee record.
-    #   "config" : no remote lookup; every value comes from this file. Default,
-    #              and byte-for-byte the old behaviour.
-    #   "url"    : GET `settings_url` and let it override. Any service that
-    #              answers JSON works, so this does NOT commit us to extending
-    #              Gauzy versus running a small separate admin page.
-    "settings_source": "config",
+    #   "gauzy"  : read them from GAUZY ITSELF, out of the employee's own
+    #              `employee_setting` record (Settings -> Tracker Settings in
+    #              the dashboard writes them there). Default. No extra service
+    #              to run, no extra port, and the settings live beside the
+    #              employee they describe.
+    #   "config" : no remote lookup at all; every value comes from this file.
+    #   "url"    : legacy. GET `settings_url` for the same JSON. Retained for
+    #              anyone pointing at their own service.
+    "settings_source": "gauzy",
     "settings_url": "",
     "settings_refresh_seconds": 60,     # how fast an admin's change takes effect
 
@@ -207,9 +210,14 @@ def log(cfg, *args):
 _settings_cache = None      # (dict, monotonic_time)
 
 
-def fetch_employee_settings(cfg, employee_id):
-    """This employee's admin-set overrides, or {} when no remote source is
-    configured.
+def fetch_employee_settings(cfg, employee_id, client=None):
+    """This employee's admin-set overrides, or {} when none are configured.
+
+    With the default `settings_source` of "gauzy" the values come from the
+    employee's own record in Gauzy, fetched through the client the tracker is
+    already authenticated with. That is what removes the need for a second
+    service: the dashboard writes the setting onto the employee, and the tracker
+    reads it back from the same place, over the connection it already has.
 
     Cached for `settings_refresh_seconds` so an admin's change lands within that
     window with no restart — the same live-control pattern the screenshot toggle
@@ -218,15 +226,26 @@ def fetch_employee_settings(cfg, employee_id):
     flip someone's idle rule the moment the settings service hiccuped, which is
     a worse failure than briefly stale settings."""
     global _settings_cache
-    if (cfg.get("settings_source") or "config").lower() != "url":
-        return {}
-    url = (cfg.get("settings_url") or "").strip()
-    if not url:
+    source = (cfg.get("settings_source") or "gauzy").lower()
+    if source == "config":
         return {}
     ttl = max(1, int(cfg.get("settings_refresh_seconds", 60)))
     now = time.monotonic()
     if _settings_cache and (now - _settings_cache[1]) < ttl:
         return _settings_cache[0]
+
+    if source == "gauzy":
+        if client is None:
+            return _settings_cache[0] if _settings_cache else {}
+        data = client.employee_settings()
+        if data is None:                      # request failed
+            return _settings_cache[0] if _settings_cache else {}
+        _settings_cache = (data, now)
+        return data
+
+    url = (cfg.get("settings_url") or "").strip()
+    if not url:
+        return {}
     sep = "&" if "?" in url else "?"
     try:
         req = urllib.request.Request(
@@ -1063,6 +1082,36 @@ class GauzyClient:
         # Could not read — keep the last known value rather than flapping.
         return cache[0] if cache else False
 
+    def employee_settings(self):
+        """This employee's System-Tracker overrides, stored on their own Gauzy
+        record. Returns a dict, or None if the request failed (so the caller can
+        keep the last known values rather than reverting to defaults).
+
+        Stored in Gauzy's generic `employee_setting` table — a per-employee row
+        with a jsonb `data` column — which is why no separate settings service
+        is needed. Settings -> Tracker Settings in the dashboard writes here.
+
+        The query MUST carry all three of employeeId, tenantId and
+        organizationId. Gauzy rejects a bare list with "where should not be
+        empty", and an employeeId alone with "where.organization must be an
+        object"; only the fully scoped form returns rows."""
+        path = (f"/api/employee-settings?where[employeeId]={self.employee_id}"
+                f"&where[tenantId]={self.tenant_id}"
+                f"&where[organizationId]={self.organization_id}")
+        status, data = self._request("GET", path)
+        if status not in (200, 201):
+            return None
+        items = data if isinstance(data, list) else (
+            data.get("items", []) if isinstance(data, dict) else [])
+        # Newest wins: the dashboard writes a fresh row rather than mutating the
+        # old one, so an employee accumulates history and only the last entry
+        # reflects what the admin currently intends.
+        out = {}
+        for it in items:
+            if isinstance(it, dict) and isinstance(it.get("data"), dict):
+                out = it["data"]
+        return out
+
     def start_timer(self):
         """Start a tracking timer, creating a running TimeLog the posted slots
         attach to. Without this, slots exist but the dashboard's activity and
@@ -1267,7 +1316,7 @@ def main():
              f"focus sample {fsample}s")
     # State the per-employee settings in force, so the log says what this
     # employee is actually configured for rather than what the file says.
-    _boot = fetch_employee_settings(cfg, client.employee_id)
+    _boot = fetch_employee_settings(cfg, client.employee_id, client)
     if (cfg.get("settings_source") or "config").lower() == "url":
         log(cfg, f"per-employee settings: {cfg.get('settings_url')} "
                  f"({len(_boot)} override(s) in force)"
@@ -1305,7 +1354,7 @@ def main():
             # This employee's admin-set overrides, re-resolved each cycle (the
             # fetch itself is cached) so a change in the dashboard takes effect
             # without a restart.
-            overrides = fetch_employee_settings(cfg, client.employee_id)
+            overrides = fetch_employee_settings(cfg, client.employee_id, client)
             fg_seconds = {}       # wm_class -> seconds focused
             fg_by_pid = {}        # focused PID -> seconds focused (exact match)
             tabs = {}             # active browser tab title -> seconds watched

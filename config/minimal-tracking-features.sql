@@ -28,7 +28,13 @@ WHERE "featureId" IN (
     'FEATURE_EMPLOYEES',
     'FEATURE_TIME_TRACKING',
     'FEATURE_EMPLOYEE_TIME_ACTIVITY',
-    'FEATURE_EMPLOYEE_TIMESHEETS'
+    'FEATURE_EMPLOYEE_TIMESHEETS',
+    -- Departments are part of the tracking workflow now: Settings -> Tracker
+    -- Settings assigns each employee to one, and app productivity categories
+    -- are held per department. Without these two the Organization menu has no
+    -- Departments entry and there is no way to create one.
+    'FEATURE_ORGANIZATION',
+    'FEATURE_ORGANIZATION_DEPARTMENT'
   )
 );
 
@@ -40,7 +46,13 @@ WHERE "featureId" IN (
     'FEATURE_EMPLOYEES',
     'FEATURE_TIME_TRACKING',
     'FEATURE_EMPLOYEE_TIME_ACTIVITY',
-    'FEATURE_EMPLOYEE_TIMESHEETS'
+    'FEATURE_EMPLOYEE_TIMESHEETS',
+    -- Departments are part of the tracking workflow now: Settings -> Tracker
+    -- Settings assigns each employee to one, and app productivity categories
+    -- are held per department. Without these two the Organization menu has no
+    -- Departments entry and there is no way to create one.
+    'FEATURE_ORGANIZATION',
+    'FEATURE_ORGANIZATION_DEPARTMENT'
   )
 );
 

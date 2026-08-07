@@ -81,35 +81,30 @@ def tracked_today(cfg):
     return out
 
 
-def categories_for(cfg, employee_id):
+def categories_for(cfg, client):
     """{process_name: category} for this employee's department, plus the default
-    for anything unclassified. ({}, None) when the admin app is unreachable.
+    for anything unclassified. ({}, None) when nothing is configured.
+
+    Read from Gauzy's own per-employee settings row — the same place the
+    dashboard writes them — so no separate service is involved.
 
     Fetched at REPORT time on purpose. Categories are a reporting lens, not a
     property of the captured data — no stored row carries one. That is what lets
     re-classifying an app, or moving someone to another department, correct
     historical reports as well as future ones. Baking the category in at capture
     would freeze yesterday's classification into yesterday's rows forever."""
-    url = (cfg.get("categories_url") or "").strip()
-    if not url:
-        # Derive it from settings_url — the two live in the same admin app, so
-        # configuring one and forgetting the other is the likely mistake.
-        base = (cfg.get("settings_url") or "").strip()
-        if not base:
-            return {}, None
-        url = base.replace("/api/settings", "/api/categories")
-    sep = "&" if "?" in url else "?"
-    try:
-        req = urllib.request.Request(
-            f"{url}{sep}employeeId={urllib.parse.quote(str(employee_id))}",
-            headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace") or "{}")
-    except Exception:
+    settings = client.employee_settings() or {}
+    dept = settings.get("department_id")
+    by_dept = settings.get("app_categories") or {}
+    if not isinstance(by_dept, dict):
         return {}, None
-    if not isinstance(data, dict):
-        return {}, None
-    return (data.get("apps") or {}), (data.get("default") or "Neutral")
+    if not dept:
+        # Classified apps exist but this employee is in no department, so none
+        # of them apply. Still report the default so the column renders and the
+        # missing department assignment is visible rather than silent.
+        return {}, ("Neutral" if by_dept else None)
+    apps = by_dept.get(dept) or {}
+    return (apps if isinstance(apps, dict) else {}), "Neutral"
 
 
 def main():
@@ -126,7 +121,7 @@ def main():
         try:
             client = pt.GauzyClient(cfg)
             client.login()
-            cats, default_cat = categories_for(cfg, client.employee_id)
+            cats, default_cat = categories_for(cfg, client)
         except Exception:
             cats, default_cat = {}, None
 
