@@ -1,5 +1,5 @@
 diff --git a/apps/gauzy/src/app/pages/employees/activity/activity.module.ts b/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
-index bc15139..6a00382 100644
+index bc15139..28c911c 100644
 --- a/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
 +++ b/apps/gauzy/src/app/pages/employees/activity/activity.module.ts
 @@ -1,6 +1,8 @@
@@ -39,7 +39,7 @@ index bc15139..6a00382 100644
  	providers: [
  		{
  			provide: ROUTES,
-@@ -78,6 +86,17 @@ export class ActivityModule {
+@@ -78,6 +86,31 @@ export class ActivityModule {
  			loadChildren: () => import('@gauzy/plugin-videos-ui').then((m) => m.VideoUiModule)
  		});
  
@@ -49,8 +49,22 @@ index bc15139..6a00382 100644
 +			path: 'app-usage',
 +			component: AppUsageComponent,
 +			data: {
++				// Single-day, like the other activity tabs: this is a per-day
++				// report, and the page reads the header selectors rather than
++				// carrying an employee dropdown and date field of its own.
++				datePicker: {
++					unitOfTime: 'day',
++					isLockDatePicker: true,
++					isSaveDatePicker: false,
++					isSingleDatePicker: true,
++					isDisableFutureDate: true
++				},
 +				title: 'App usage',
 +				type: 'app-usage'
++			},
++			resolve: {
++				dates: DateRangePickerResolver,
++				bookmarkParams: BookmarkQueryParamsResolver
 +			}
 +		});
 +
@@ -59,21 +73,11 @@ index bc15139..6a00382 100644
  			location: 'time-activity-sections',
 diff --git a/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html
 new file mode 100644
-index 0000000..ebabe12
+index 0000000..2327f0a
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.html
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,66 @@
 +<nb-card class="app-usage">
-+	<nb-card-header>
-+		<div class="filters">
-+			<nb-select size="small" [(selected)]="employeeId" (selectedChange)="load()" placeholder="Employee">
-+				<nb-option *ngFor="let e of employees" [value]="e.id">{{ e.label }}</nb-option>
-+			</nb-select>
-+			<input nbInput fieldSize="small" type="date" [(ngModel)]="date" (change)="load()" />
-+			<button nbButton size="small" (click)="load()">Refresh</button>
-+		</div>
-+	</nb-card-header>
-+
 +	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
 +		<p class="text-hint">
 +			<b>Running</b> is how long the process existed — background services included.
@@ -209,14 +213,16 @@ index 0000000..c079929
 +}
 diff --git a/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts
 new file mode 100644
-index 0000000..91db748
+index 0000000..f0d4c8d
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/employees/activity/app-usage/app-usage.component.ts
-@@ -0,0 +1,173 @@
-+import { Component, OnInit } from '@angular/core';
+@@ -0,0 +1,165 @@
++import { Component, OnDestroy, OnInit } from '@angular/core';
 +import { HttpClient } from '@angular/common/http';
-+import { Store } from '@gauzy/ui-core/core';
-+import { firstValueFrom } from 'rxjs';
++import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
++import { DateRangePickerBuilderService, Store } from '@gauzy/ui-core/core';
++import { combineLatest, firstValueFrom } from 'rxjs';
++import { debounceTime, tap } from 'rxjs/operators';
 +
 +/**
 + * App usage — running time versus on-screen time.
@@ -246,70 +252,58 @@ index 0000000..91db748
 +	onScreenSeconds: number;
 +}
 +
++@UntilDestroy({ checkProperties: true })
 +@Component({
 +	selector: 'ga-app-usage',
 +	templateUrl: './app-usage.component.html',
 +	styleUrls: ['./app-usage.component.scss'],
 +	standalone: false
 +})
-+export class AppUsageComponent implements OnInit {
++export class AppUsageComponent implements OnInit, OnDestroy {
 +	public rows: AppRow[] = [];
 +	public backgroundRows: AppRow[] = [];
 +	public loading = true;
 +	public error = '';
-+	/**
-+	 * Today in LOCAL time. `toISOString()` is UTC, so before 05:30 IST it names
-+	 * yesterday and the page opens on an empty day.
-+	 */
-+	public date = (() => {
-+		const d = new Date();
-+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-+	})();
++	public date = '';
 +	public employeeId = '';
-+	public employees: { id: string; label: string }[] = [];
 +	/** Collapse the never-on-screen services into one line by default. */
 +	public showBackground = false;
 +
 +	constructor(
 +		private readonly http: HttpClient,
-+		private readonly store: Store
++		private readonly store: Store,
++		private readonly dateRangePickerBuilderService: DateRangePickerBuilderService
 +	) {}
 +
-+	async ngOnInit(): Promise<void> {
-+		await this.loadEmployees();
-+		await this.load();
++	/**
++	 * Driven by the dashboard's OWN header selectors.
++	 *
++	 * A second employee dropdown inside the page did not merely duplicate the
++	 * header one — the two could disagree, and did: the header said one employee
++	 * while the page queried another, producing an empty report that looked like
++	 * a fault rather than a mismatch.
++	 */
++	ngOnInit(): void {
++		combineLatest([this.store.selectedEmployee$, this.dateRangePickerBuilderService.selectedDateRange$])
++			.pipe(
++				// Both selectors settle independently on load; without this the
++				// page fires a request per emission, the first with a stale value.
++				debounceTime(300),
++				tap(([employee, range]) => {
++					this.employeeId = employee?.id || this.store.user?.employeeId || '';
++					const start = range?.startDate ? new Date(range.startDate) : new Date();
++					this.date = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(
++						start.getDate()
++					).padStart(2, '0')}`;
++					this.load();
++				}),
++				untilDestroyed(this)
++			)
++			.subscribe();
 +	}
 +
-+	private async loadEmployees(): Promise<void> {
-+		try {
-+			const res: any = await firstValueFrom(
-+				this.http.get(
-+					`/api/employee?where[tenantId]=${this.store.user?.tenantId}` +
-+						`&where[organizationId]=${this.store.selectedOrganization?.id}&relations[0]=user`
-+				)
-+			);
-+			this.employees = (res?.items || res || []).map((e: any) => ({
-+				id: e.id,
-+				label:
-+					e.user?.name ||
-+					[e.user?.firstName, e.user?.lastName].filter(Boolean).join(' ') ||
-+					e.user?.email ||
-+					e.id.slice(0, 8)
-+			}));
-+			// Default to the SIGNED-IN user's own employee record, not employees[0].
-+			// The API returns employees in an arbitrary order, and on a fresh
-+			// install most of them have never run a tracker — so picking the first
-+			// one lands on an empty report and reads as "the feature is broken"
-+			// rather than "you are looking at someone who isn't tracked".
-+			if (!this.employeeId) {
-+				const mine = this.store.user?.employeeId;
-+				this.employeeId =
-+					(mine && this.employees.some((e) => e.id === mine) && mine) || this.employees[0]?.id || '';
-+			}
-+		} catch {
-+			this.employees = [];
-+		}
-+	}
++	ngOnDestroy(): void {}
++
 +
 +	public async load(): Promise<void> {
 +		this.loading = true;
@@ -347,9 +341,11 @@ index 0000000..91db748
 +				.filter((r) => r.onScreenSeconds === 0)
 +				.sort((a, b) => b.runningSeconds - a.runningSeconds);
 +			if (!all.length) {
++				// Name the date: an empty report beside a header date the user did
++				// not choose reads as a fault rather than a wrong-day selection.
 +				this.error =
-+					'No usage recorded for this employee on this date. Totals are published by the ' +
-+					'tracker itself, so a machine that was not running the tracker that day has none.';
++					`No usage recorded for this employee on ${this.date}. Totals are published by the ` +
++					'tracker itself, so a machine not running it that day has none. Check the date in the header.';
 +			}
 +		} catch (e: any) {
 +			this.error = `Could not load usage (HTTP ${e?.status || '?'}).`;
@@ -436,7 +432,7 @@ index 340de28..5c1dd1e 100644
  		});
  	}
 diff --git a/apps/gauzy/src/app/pages/employees/employees-routing.module.ts b/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
-index 6259e5e..6e76b2d 100644
+index 6259e5e..7a9ff07 100644
 --- a/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
 +++ b/apps/gauzy/src/app/pages/employees/employees-routing.module.ts
 @@ -2,6 +2,7 @@ import { NgModule } from '@angular/core';
@@ -447,7 +443,7 @@ index 6259e5e..6e76b2d 100644
  import { EmployeesComponent } from './employees.component';
  import { ManageEmployeeInviteComponent } from './manage-employee-invite/manage-employee-invite.component';
  import { EditEmployeeComponent } from './edit-employee/edit-employee.component';
-@@ -163,6 +164,32 @@ const routes: Routes = [
+@@ -163,6 +164,36 @@ const routes: Routes = [
  	{
  		path: 'activity',
  		loadChildren: () => import('./activity/activity.module').then((m) => m.ActivityModule)
@@ -471,7 +467,11 @@ index 6259e5e..6e76b2d 100644
 +			datePicker: {
 +				unitOfTime: 'day',
 +				isLockDatePicker: true,
-+				isSaveDatePicker: true,
++				// NOT saved between visits. A daily report should open on today;
++				// persisting the picker meant inheriting whatever range was last
++				// used elsewhere — a week range collapsed to its start date, so the
++				// page opened four days in the past and looked empty.
++				isSaveDatePicker: false,
 +				isSingleDatePicker: true,
 +				isDisableFutureDate: true
 +			}
@@ -482,10 +482,10 @@ index 6259e5e..6e76b2d 100644
  
 diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html
 new file mode 100644
-index 0000000..39f71bc
+index 0000000..40052b6
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.html
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,95 @@
 +<nb-card class="productivity">
 +	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
 +		<!-- Legend always present: identity is never colour alone. -->
@@ -494,6 +494,7 @@ index 0000000..39f71bc
 +			<span><i class="sw neutral"></i>Neutral</span>
 +			<span><i class="sw unproductive"></i>Unproductive</span>
 +			<span><i class="sw idle"></i>Idle</span>
++			<span><i class="sw untracked"></i>Not tracked</span>
 +		</div>
 +
 +		<div *ngIf="note" class="text-hint">{{ note }}</div>
@@ -523,6 +524,10 @@ index 0000000..39f71bc
 +					<rect class="seg idle" x="8" width="22" [attr.y]="segY(b, 'idle')" [attr.height]="b.idle" rx="1">
 +						<title>{{ b.label }} — Idle {{ b.idle | number: '1.0-0' }}% ({{ b.trackedMinutes }} min tracked)</title>
 +					</rect>
++					<rect class="seg untracked" x="8" width="22" [attr.y]="segY(b, 'untracked')"
++						[attr.height]="b.untracked" rx="1">
++						<title>{{ b.label }} — Not tracked {{ b.untracked | number: '1.0-0' }}% (tracker not running)</title>
++					</rect>
 +					<text class="xlabel" x="19" y="112">{{ b.label }}</text>
 +				</g>
 +			</svg>
@@ -537,6 +542,7 @@ index 0000000..39f71bc
 +					<th>Neutral</th>
 +					<th>Unproductive</th>
 +					<th>Idle</th>
++					<th>Not tracked</th>
 +					<th>Tracked</th>
 +				</tr>
 +			</thead>
@@ -547,7 +553,8 @@ index 0000000..39f71bc
 +					<td>{{ b.neutral | number: '1.0-0' }}%</td>
 +					<td>{{ b.unproductive | number: '1.0-0' }}%</td>
 +					<td>{{ b.idle | number: '1.0-0' }}%</td>
-+					<td>{{ b.trackedMinutes }} min</td>
++					<td>{{ b.untracked | number: '1.0-0' }}%</td>
++					<td>{{ b.trackedMinutes }} / 60 min</td>
 +				</tr>
 +				<tr class="totals">
 +					<td><b>Day average</b></td>
@@ -555,6 +562,7 @@ index 0000000..39f71bc
 +					<td><b>{{ dayAverage().neutral | number: '1.0-0' }}%</b></td>
 +					<td><b>{{ dayAverage().unproductive | number: '1.0-0' }}%</b></td>
 +					<td><b>{{ dayAverage().idle | number: '1.0-0' }}%</b></td>
++					<td><b>{{ dayAverage().untracked | number: '1.0-0' }}%</b></td>
 +					<td></td>
 +				</tr>
 +			</tbody>
@@ -566,14 +574,19 @@ index 0000000..39f71bc
 +			<b>on screen</b>, since only one window holds focus at a time. Hours with no tracked time are
 +			omitted rather than drawn empty.
 +		</p>
++		<p class="text-hint" *ngIf="bars.length">
++			<b>Not tracked</b> is time the tracker was not running — logged out, or the machine off. It is
++			deliberately not counted as idle: idle means present but inactive, and the tracker cannot tell
++			someone who went home from someone working on another machine.
++		</p>
 +	</nb-card-body>
 +</nb-card>
 diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss
 new file mode 100644
-index 0000000..fc5b3d9
+index 0000000..b7a6db0
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.scss
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,102 @@
 +// Chart palette. Both modes were validated with the dataviz palette checker
 +// against the surfaces they actually render on (#ffffff light, #222b45 dark):
 +// lightness band, chroma floor, CVD separation, normal-vision floor and
@@ -584,6 +597,10 @@ index 0000000..fc5b3d9
 +	--neutral: #2a78d6;
 +	--unproductive: #c62f2f;
 +	--idle: #7a5ea8;
++	// Deliberately a low-chroma grey. The other four are categories; this one is
++	// the ABSENCE of data, and grey is the honest convention for "nothing here".
++	// It is excluded from the categorical palette checks for that reason.
++	--untracked: #c9c9c4;
 +	--grid: rgba(0, 0, 0, 0.12);
 +	--ink-muted: rgba(0, 0, 0, 0.55);
 +
@@ -616,6 +633,7 @@ index 0000000..fc5b3d9
 +		.sw.neutral { background: var(--neutral); }
 +		.sw.unproductive { background: var(--unproductive); }
 +		.sw.idle { background: var(--idle); }
++		.sw.untracked { background: var(--untracked); }
 +	}
 +
 +	// Wide days scroll inside the chart rather than pushing the page sideways.
@@ -651,6 +669,7 @@ index 0000000..fc5b3d9
 +		.seg.neutral { fill: var(--neutral); }
 +		.seg.unproductive { fill: var(--unproductive); }
 +		.seg.idle { fill: var(--idle); }
++		.seg.untracked { fill: var(--untracked); }
 +		.seg:hover { opacity: 0.85; }
 +	}
 +
@@ -666,15 +685,16 @@ index 0000000..fc5b3d9
 +	--neutral: #4c94e8;
 +	--unproductive: #e05a5a;
 +	--idle: #9079cc;
++	--untracked: #4a4a52;
 +	--grid: rgba(255, 255, 255, 0.16);
 +	--ink-muted: rgba(255, 255, 255, 0.7);
 +}
 diff --git a/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts
 new file mode 100644
-index 0000000..c10bfd5
+index 0000000..6032e9a
 --- /dev/null
 +++ b/apps/gauzy/src/app/pages/employees/productivity/productivity.component.ts
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,246 @@
 +import { Component, OnDestroy, OnInit } from '@angular/core';
 +import { HttpClient } from '@angular/common/http';
 +import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
@@ -709,6 +729,8 @@ index 0000000..c10bfd5
 +	neutral: number;
 +	unproductive: number;
 +	idle: number;
++	/** Minutes of the hour with no tracking at all — logged out, or machine off. */
++	untracked: number;
 +	trackedMinutes: number;
 +}
 +
@@ -816,8 +838,13 @@ index 0000000..c10bfd5
 +				// cap keeps historical or externally-written data honest too.
 +				const wall = Math.min(hb.wall, 3600);
 +				const active = Math.min(hb.active || 0, wall);
-+				const idle = Math.max(0, Math.min(100, ((wall - active) / wall) * 100));
-+				const activePct = 100 - idle;
++				// Every segment is a share of the WHOLE hour, not of the tracked
++				// part. Otherwise an hour with four minutes of work reads exactly
++				// like a full one, and logging out looks identical to being busy.
++				const coverage = wall / 3600;
++				const untrackedPct = Math.max(0, 100 - coverage * 100);
++				const idle = Math.max(0, ((wall - active) / 3600) * 100);
++				const activePct = Math.max(0, coverage * 100 - idle);
 +				const fg: Record<string, number> = { Productive: 0, Neutral: 0, Unproductive: 0 };
 +				for (const [app, secs] of Object.entries(hb.apps || {})) {
 +					const cat = this.categorise(app);
@@ -836,14 +863,18 @@ index 0000000..c10bfd5
 +					neutral: share('Neutral'),
 +					unproductive: share('Unproductive'),
 +					idle,
++					untracked: untrackedPct,
 +					trackedMinutes: Math.round(wall / 60)
 +				});
 +			}
 +			this.bars = bars;
 +			if (!bars.length) {
++				// Name the date. "No tracked time on this date" beside a header
++				// showing a date the user did not choose reads as a fault; naming
++				// it makes the actual cause — wrong day selected — obvious.
 +				this.note =
-+					'No tracked time for this employee on this date. Hourly totals are published by the ' +
-+					'tracker, so a machine not running it that day has none.';
++					`No tracked time for this employee on ${this.date}. Hourly totals are published by ` +
++					'the tracker, so a machine not running it that day has none. Check the date in the header.';
 +			} else if (!Object.keys(this.categories).length) {
 +				this.note =
 +					'No apps classified for this employee\u2019s department, so active time shows as Neutral. ' +
@@ -882,8 +913,8 @@ index 0000000..c10bfd5
 +	}
 +
 +	/** y for a stacked segment in a 0–100 viewBox measured from the top. */
-+	public segY(bar: HourBar, seg: 'productive' | 'neutral' | 'unproductive' | 'idle'): number {
-+		const order: Array<keyof HourBar> = ['productive', 'neutral', 'unproductive', 'idle'];
++	public segY(bar: HourBar, seg: 'productive' | 'neutral' | 'unproductive' | 'idle' | 'untracked'): number {
++		const order: Array<keyof HourBar> = ['productive', 'neutral', 'unproductive', 'idle', 'untracked'];
 +		let acc = 0;
 +		for (const k of order) {
 +			if (k === seg) break;
@@ -892,14 +923,21 @@ index 0000000..c10bfd5
 +		return 100 - acc - (bar[seg] as number);
 +	}
 +
-+	public dayAverage(): { productive: number; neutral: number; unproductive: number; idle: number } {
++	public dayAverage(): {
++		productive: number;
++		neutral: number;
++		unproductive: number;
++		idle: number;
++		untracked: number;
++	} {
 +		const n = this.bars.length || 1;
 +		const sum = (k: keyof HourBar) => this.bars.reduce((t, b) => t + (b[k] as number), 0) / n;
 +		return {
 +			productive: sum('productive'),
 +			neutral: sum('neutral'),
 +			unproductive: sum('unproductive'),
-+			idle: sum('idle')
++			idle: sum('idle'),
++			untracked: sum('untracked')
 +		};
 +	}
 +}

@@ -179,6 +179,26 @@ keeps the old interval.
 
 ## 7. Environment facts worth keeping
 
+**Security decisions taken 2026-08-07**
+
+- **Sentry disabled.** `SENTRY_DSN` in `~/gauzy/.env.demo.compose` pointed at Ever
+  Co's Sentry project (`o51327.ingest.sentry.io`). Unhandled API exceptions —
+  which can carry request payloads, employee ids and stack traces — were being
+  sent to a third party outside the organisation, and this host can reach
+  `sentry.io`. The value is now empty and the API was recreated to pick it up.
+  A backup of the original file is `.env.demo.compose.bak`.
+  `POSTHOG_KEY`, `JITSU_*` and the AWS keys were already empty, and the browser
+  bundle ships Sentry code with no populated DSN, so nothing reported from
+  employees' browsers.
+- **Credential files are 0600.** `tracker/config.json`, the installed copy under
+  `~/.local/share/system-tracker/`, and `.env.demo.compose` all held secrets at
+  0664 — readable by any local user. `packaging/install.sh` now creates the
+  config 0600 before writing to it.
+- **Still outstanding:** the tracker authenticates as `admin@ever.co` / `admin`.
+  Each workstation should use its own employee account, and the default password
+  must change before the box is reachable by anyone else.
+
+
 - Gauzy API: `http://localhost:3000`; login `admin@ever.co` / `admin` (Super Admin,
   and also an Employee — the tracker requires an employee record to attach
   activities to).

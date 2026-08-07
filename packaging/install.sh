@@ -35,6 +35,11 @@ cp "$SRC/tracker/proc_tracker.py" "$SRC/tracker/report.py" "$APP_DIR/"
 # 2. Config
 if [ ! -f "$APP_DIR/config.json" ]; then
     cp "$SRC/tracker/config.example.json" "$APP_DIR/config.json"
+    # 0600 BEFORE anything is written into it. This file holds the Gauzy
+    # password in plaintext, and the default umask leaves it world-readable —
+    # on a shared workstation any local user could read the credentials the
+    # tracker posts everyone's activity with.
+    chmod 600 "$APP_DIR/config.json"
     if [ -n "${GAUZY_URL:-}" ] || [ -n "${GAUZY_EMAIL:-}" ] || [ -n "${GAUZY_PASSWORD:-}" ]; then
         python3 - "$APP_DIR/config.json" <<'PY'
 import json, os, sys
