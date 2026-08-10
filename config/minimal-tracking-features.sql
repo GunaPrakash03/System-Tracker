@@ -34,7 +34,12 @@ WHERE "featureId" IN (
     -- are held per department. Without these two the Organization menu has no
     -- Departments entry and there is no way to create one.
     'FEATURE_ORGANIZATION',
-    'FEATURE_ORGANIZATION_DEPARTMENT'
+    'FEATURE_ORGANIZATION_DEPARTMENT',
+    -- Teams are how a manager is tied to the employees they may see: a member
+    -- flagged isManager in a team manages that team's members. Disabled, the
+    -- Organization menu has no Teams entry and the manager role cannot be
+    -- assigned anyone. See docs/manager-role-and-visibility.md.
+    'FEATURE_ORGANIZATION_TEAM'
   )
 );
 
@@ -52,7 +57,12 @@ WHERE "featureId" IN (
     -- are held per department. Without these two the Organization menu has no
     -- Departments entry and there is no way to create one.
     'FEATURE_ORGANIZATION',
-    'FEATURE_ORGANIZATION_DEPARTMENT'
+    'FEATURE_ORGANIZATION_DEPARTMENT',
+    -- Teams are how a manager is tied to the employees they may see: a member
+    -- flagged isManager in a team manages that team's members. Disabled, the
+    -- Organization menu has no Teams entry and the manager role cannot be
+    -- assigned anyone. See docs/manager-role-and-visibility.md.
+    'FEATURE_ORGANIZATION_TEAM'
   )
 );
 

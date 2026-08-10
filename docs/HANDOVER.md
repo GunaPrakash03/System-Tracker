@@ -231,3 +231,68 @@ Key functions in `proc_tracker.py`: `list_windows()` (all open windows, X11),
 `get_idle_seconds()` / `get_idle_seconds_x11()` (idle), `scan_proc()` (process scan),
 `build_process_rows()` (per-interval aggregation), `GauzyClient.post_time_slot()`
 (API push).
+
+## 9. Session of 2026-08-10 — state and what is left
+
+### 9.1 The one real outstanding item: the timer
+
+`Worked today` on the Time Tracking dashboard reads **3h 42m** against **7h 05m**
+actually tracked. The widget is not lying about its own data — it counts
+`time_log` (timer sessions), not `time_slot` (the tracking record), and the logs
+do not faithfully cover the day.
+
+Why they do not:
+
+- `enforce_timer`/`maintain_timer` re-assert a timer **every cycle**, so it can
+  never be stopped from the dashboard. Deliberate, and it should stay.
+- Nothing ever closes it at day end, so it accumulates indefinitely. That is
+  what produced a header reading `23:05:43`.
+- A long-running open timer has its duration computed live as `now − startedAt`.
+  Closing one — as was necessary to fix the 23:05:43 reading — records zero
+  duration, and that time leaves the logs. The morning of 2026-08-10 went this
+  way.
+- Restarts fragment the rest into one-minute logs.
+
+**The fix, for the next session:** hold one TimeLog per contiguous tracked run —
+extend it while intervals are contiguous, close it on a gap, and close the day
+at midnight. Then `Worked today` equals tracked time by construction instead of
+being a side-effect that needs periodic repair.
+
+Optionally afterwards: backfill today's logs from slots so the dashboard reads
+correctly for 2026-08-10. Do the tracker fix first, or the backfill is
+immediately re-fragmented.
+
+### 9.2 Landmines found the hard way — worth not rediscovering
+
+- **`DB_TYPE=better-sqlite3` in `.env.local`** meant the API silently served a
+  seeded demo database: every sidebar feature on, no real organisation, foreign
+  timezones on the screenshots. Three unrelated-looking bugs, one cause. Also
+  `DB_PASS` did not match the container's `POSTGRES_PASSWORD`.
+- **`TZ=UTC` is required on the API.** The timestamp columns are
+  `timestamp without time zone` holding UTC, and node-postgres parses them using
+  the *process* timezone. Under IST the API served every time 5½ hours out.
+- **The tracker resumed an empty day when it could not read its published
+  totals**, then overwrote six hours with five minutes. `usage_for` now returns
+  `None` for a failed read, distinct from an empty day, and the loop defers the
+  report rather than restarting the day. Fixed, but the shape of the bug —
+  "cannot read" conflated with "nothing there" — is worth watching for.
+- **Gauzy stores both 60s posts and 10-minute aggregates of the same time.**
+  Summing both double-counts a day (96% active against a true 77%). Use one
+  granularity; the aggregates are what the API serves.
+- **An empty employee-id list means "no filter"** to every downstream query, so
+  a scoping filter that narrows to empty grants everything. See
+  `NO_ACCESSIBLE_EMPLOYEES` in `managed-employee.service.ts`.
+
+### 9.3 Local operation
+
+`~/.local/bin/gauzy-stack {start|stop|restart|status|build}` runs the stack.
+Node 24 via nvm is mandatory (`engines: >=24`); the shell default is 22 and yarn
+refuses outright. `ng serve` needs ~12 GB and cannot share the box with the API,
+so the UI is served as a static build — see the memory note for the full
+arrangement.
+
+Playwright drives the real UI for verification:
+`node_modules/playwright` with `executablePath: /opt/google/chrome/chrome`
+(the bundled Chromium revision does not match). This is how the blank
+Productivity page was diagnosed — it turned out `load()` returned early and
+silently whenever no employee was selected.

@@ -41,7 +41,7 @@ import subprocess
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -1220,12 +1220,27 @@ class GauzyClient:
 
     def usage_for(self, day):
         """Today's already-published totals, so a restart resumes the day rather
-        than zeroing it."""
-        data = self.employee_settings() or {}
+        than zeroing it.
+
+        `marks` comes back too: without it a tracker restarted at lunch would
+        report the day as starting at lunch, which is exactly the number an
+        admin would read as the employee arriving late.
+
+        Returns None when the settings could not be READ, which is emphatically
+        not the same as a day with nothing in it. Treating the two alike loses
+        real data: a tracker restarted while the API happens to be down resumes
+        an empty day and, on its next publish, overwrites hours of recorded
+        totals with a few minutes. The caller must retry rather than reset."""
+        data = self.employee_settings()
+        if data is None:
+            return None
         u = data.get("usage")
         if isinstance(u, dict) and u.get("date") == day:
-            return {"apps": u.get("apps") or {}, "hours": u.get("hours") or {}}
-        return {"apps": {}, "hours": {}}
+            return {"apps": u.get("apps") or {},
+                    "hours": u.get("hours") or {},
+                    "marks": u.get("marks") or {},
+                    "segments": u.get("segments") or []}
+        return {"apps": {}, "hours": {}, "marks": {}, "segments": []}
 
     def publish_usage(self, day, summary):
         """Publish today's per-app running and on-screen seconds.
@@ -1261,6 +1276,19 @@ class GauzyClient:
                                # produces, and almost none carry foreground
                                # seconds, so every hour collapsed to Neutral.
                                "hours": summary.get("hours") or {},
+                               # Wall-clock marks the hour buckets cannot carry:
+                               # when tracking began, when the current idle run
+                               # began, and when work resumed after it. Summing
+                               # into hour buckets discards the minute, so these
+                               # are recorded at the moment the transition is
+                               # observed instead of being derived later.
+                               "marks": summary.get("marks") or {},
+                               # The day as a sequence rather than a set of
+                               # totals: {s, e, k, a} per episode, merged across
+                               # consecutive like intervals. Gaps between one
+                               # entry's end and the next entry's start are time
+                               # the tracker was not running.
+                               "segments": summary.get("segments") or [],
                                "source": "system-tracker"}
             status, _ = self._request("POST", "/api/employee-settings", {
                 "employeeId": self.employee_id,
@@ -1513,8 +1541,16 @@ def main():
     # rows — see GauzyClient.post_usage_summary for why.
     usage_day = None     # the date these totals belong to
     # {"apps": {name: {"r": running, "s": on_screen}},
-    #  "hours": {"HH": {"wall": s, "active": s, "apps": {name: on_screen}}}}
-    usage = {"apps": {}, "hours": {}}
+    #  "hours": {"HH": {"wall": s, "active": s, "apps": {name: on_screen}}},
+    #  "marks": {"started_at": "HH:MM", "last_idle_started_at": "HH:MM"|None,
+    #            "last_active_resumed_at": "HH:MM"|None},
+    #  "segments": [{"s": "HH:MM", "e": "HH:MM", "k": "active"|"idle",
+    #                "a": on-screen app or None}]}
+    usage = {"apps": {}, "hours": {}, "marks": {}, "segments": []}
+    # Active/idle state of the previous interval, so a change of state can be
+    # timed. None until the first interval: a restart must not invent an idle
+    # transition that never happened.
+    prev_active = None
     try:
         while True:
             started = now_ts(cfg)
@@ -1607,14 +1643,55 @@ def main():
             today = local_now.strftime("%Y-%m-%d")
             if usage_day != today:
                 # Resume the day rather than restarting it — see usage_for.
-                usage_day, usage = today, client.usage_for(today)
+                resumed = client.usage_for(today)
+                if resumed is None:
+                    # Could not read what is already recorded. Accumulating now
+                    # would build a day from zero and the next publish would
+                    # overwrite the real one, so this cycle contributes nothing
+                    # to the report and the resume is retried next interval.
+                    # Posting time slots is unaffected — that is the record that
+                    # matters, and this is only the summary built on top of it.
+                    log(cfg, "note: could not read today's totals; report paused "
+                             "this interval rather than restarting the day")
+                else:
+                    usage_day, usage = today, resumed
+            if usage_day != today:
+                status, resp = client.post_time_slot(rows, tabs, started, interval,
+                                                     active_seconds, audio_seconds)
+                if status in (200, 201):
+                    log(cfg, f"posted slot ({int(active_seconds)}/{interval}s active), report deferred")
+                prev_active = active_seconds > 0
+                continue
             day_apps = usage.setdefault("apps", {})
             hours = usage.setdefault("hours", {})
+            marks = usage.setdefault("marks", {})
+            # Wall-clock marks. The hour buckets above sum the minute away, so
+            # "idle began at 14:37" cannot be recovered from them afterwards —
+            # it has to be noticed as it happens.
+            #
+            # Times name the START of the interval, not its end: the transition
+            # happened somewhere inside it, and its start is the honest bound.
+            # Resolution is therefore one interval (60s by default), which is
+            # what the tracker actually knows — not a second more.
+            slot_start = (local_now - timedelta(seconds=interval)).strftime("%H:%M")
+            is_active = active_seconds > 0
+            marks.setdefault("started_at", slot_start)
+            if prev_active is not None and prev_active != is_active:
+                if is_active:
+                    marks["last_active_resumed_at"] = slot_start
+                else:
+                    marks["last_idle_started_at"] = slot_start
+                    # A fresh idle run makes the previous "resumed" stale: the
+                    # pair must read as one episode, or the dashboard shows work
+                    # resuming before the idle it resumed from.
+                    marks["last_active_resumed_at"] = None
+            prev_active = is_active
             # Hour bucket for this slot. wall/active give the chart its idle
             # split; per-app foreground seconds give the productive split. Both
             # are recorded here because the API cannot serve either at day scale.
             hb = hours.setdefault(local_now.strftime("%H"),
-                                  {"wall": 0, "active": 0, "apps": {}})
+                                  {"wall": 0, "active": 0, "apps": {}, "focus": {}})
+            hb.setdefault("focus", {})   # hours written before `focus` existed
             hb["wall"] += interval
             hb["active"] += int(active_seconds)
             for r in rows:
@@ -1626,6 +1703,53 @@ def main():
                 # listing every headless process would be mostly zeroes.
                 if fg:
                     hb["apps"][r["name"]] = hb["apps"].get(r["name"], 0) + fg
+                    # `focus` is the same seconds keyed for CLASSIFICATION rather
+                    # than for reporting: browsers are replaced by their tab
+                    # titles below, so "youtube" can be classified separately from
+                    # the dashboard even though both are the chrome process.
+                    # `apps` is left alone — App usage reports per application,
+                    # and splitting it by tab would turn one row into fifty.
+                    if not any(b in r["name"] for b in browsers):
+                        hb["focus"][r["name"]] = hb["focus"].get(r["name"], 0) + fg
+            for tab_title, tab_secs in tabs.items():
+                hb["focus"][tab_title] = hb["focus"].get(tab_title, 0) + int(tab_secs)
+
+            # Day timeline: what was happening, and WHEN. The hour buckets above
+            # can say the 10:00 hour was 40% idle; they cannot say idle ran from
+            # 10:40 to 11:00, because summing into an hour discards the order.
+            #
+            # Only the app is recorded, never a productivity category: the
+            # admin's app-to-category mapping lives in the dashboard and changes
+            # there. Categorising here would bake one day's mapping into history
+            # and need a tracker redeploy to correct.
+            #
+            # Consecutive intervals in the same state and the same app extend the
+            # previous entry rather than adding one, which keeps a full day to a
+            # few dozen entries instead of ~1,400.
+            top_app = None
+            if active_seconds > 0 and rows:
+                on_screen = [r for r in rows if int(r.get("foreground_seconds", 0) or 0) > 0]
+                if on_screen:
+                    top_app = max(on_screen,
+                                  key=lambda r: int(r.get("foreground_seconds", 0) or 0))["name"]
+                    # Every browser tab is the same process, so reporting "chrome"
+                    # makes an hour of YouTube indistinguishable from an hour of
+                    # the company dashboard. When the browser is what is on screen,
+                    # the tab title is the only thing that says which — so it, not
+                    # the process, is what gets classified.
+                    if any(b in top_app for b in browsers) and tabs:
+                        top_app = max(tabs.items(), key=lambda kv: kv[1])[0]
+            segments = usage.setdefault("segments", [])
+            end_hm = local_now.strftime("%H:%M")
+            if (segments and segments[-1].get("k") == ("active" if is_active else "idle")
+                    and segments[-1].get("a") == top_app
+                    and segments[-1].get("e") == slot_start):
+                # Contiguous with the previous entry: extend it.
+                segments[-1]["e"] = end_hm
+            else:
+                segments.append({"s": slot_start, "e": end_hm,
+                                 "k": "active" if is_active else "idle",
+                                 "a": top_app})
 
             status, resp = client.post_time_slot(rows, tabs, started, interval,
                                                  active_seconds, audio_seconds)
