@@ -161,9 +161,19 @@ nb-accordion-item:first-child.collapsed nb-accordion-item-header.principal:hover
   letter-spacing: 0em;
 }
 
+// The standalone platform mark on the auth screens. 22px suited Ever's wide
+// "ever gauzy" wordmark, where height was the only constraint that mattered;
+// a SQUARE mark at that height is a 22px chip and reads as an icon that failed
+// to load. Sized for a square instead, with width left to the aspect ratio so a
+// wordmark still lays out correctly.
 .logo {
 	img {
-		height: 22px;
+		height: 40px;
+		width: auto;
+		max-width: 160px;
+		// Our mark is a full-bleed black tile; the radius stops it reading as a
+		// hole punched in the card.
+		border-radius: 8px;
 	}
 	object {
 		max-width: 128px;
