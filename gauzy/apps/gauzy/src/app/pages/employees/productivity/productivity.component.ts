@@ -409,15 +409,31 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 	 * exact entry beat any partial, means classifying "codex" explicitly always
 	 * overrides the accidental "code" hit.
 	 */
+	/**
+	 * The bucket a stored category counts towards. "Chrome Neutral" is Neutral;
+	 * the prefix scopes where the rule applies, it is not a category of its own.
+	 */
+	private bucketOf(value: string): string {
+		return (value || '').replace(/^Chrome /, '') || 'Neutral';
+	}
+
 	public categorise(title: string): string {
 		const name = (title || '').toLowerCase();
 		if (!name) return 'Neutral';
-		if (this.categories[name]) return this.categories[name];
+		// A "Chrome …" category is scoped to browser tabs — it must not classify a
+		// desktop process of the same name. `spotify → Chrome Unproductive` marks
+		// Spotify in a tab without touching the Spotify application.
+		const isTab = !this.processNames.has(name);
+		const applies = (value: string) => isTab || !value.startsWith('Chrome ');
+		if (this.categories[name] && applies(this.categories[name])) {
+			return this.bucketOf(this.categories[name]);
+		}
 		let best = '';
 		for (const key of Object.keys(this.categories)) {
-			if (key && name.includes(key) && key.length > best.length) best = key;
+			if (!key || !applies(this.categories[key])) continue;
+			if (name.includes(key) && key.length > best.length) best = key;
 		}
-		if (best) return this.categories[best];
+		if (best) return this.bucketOf(this.categories[best]);
 
 		// Nothing matched. If this was a BROWSER TAB, inherit the browser's own
 		// category rather than falling to Neutral.
@@ -437,7 +453,7 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 		// browser takes the browser's category.
 		if (!this.processNames.has(name) && this.browserApp) {
 			const browserCategory = this.categories[this.browserApp];
-			if (browserCategory) return browserCategory;
+			if (browserCategory) return this.bucketOf(browserCategory);
 		}
 		return 'Neutral';
 	}

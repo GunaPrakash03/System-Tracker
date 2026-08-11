@@ -82,11 +82,39 @@ verdicts, decided per tab. The row is the roll-up; hovering it lists the window
 titles that produced it, so "chrome 29m neutral" can be traced to the specific
 videos without a row per video cluttering the page.
 
-Note what is **not** needed: there are no `chrome neutral` or `chrome
-unproductive` entries in Tracker settings, and adding them would do nothing. The
-split comes from classifying the *tabs* — `youtube`, `spotify` — while `chrome`
-supplies the default for everything else. One entry per exception, and the
-categories fall out of it.
+The split comes from classifying the *tabs* — `youtube`, `spotify` — while
+`chrome` supplies the default for everything else. One entry per exception, and
+the categories fall out of it.
+
+## The "Chrome …" categories
+
+The category dropdown offers five values, not three:
+
+| Category | Applies to |
+|---|---|
+| `Productive` / `Neutral` / `Unproductive` | anything the name matches — a process **or** a browser tab |
+| `Chrome Neutral` / `Chrome Unproductive` | **browser tabs only** |
+
+The prefix scopes *where* a rule applies; it is not a fourth and fifth category.
+`Chrome Neutral` counts towards Neutral in every total, `Chrome Unproductive`
+towards Unproductive.
+
+It exists for names that mean different things in different places. Spotify is
+the clearest case:
+
+```
+spotify: Unproductive          -> the desktop app AND the web player
+spotify: Chrome Unproductive   -> the web player only; the desktop app is
+                                  left to whatever else classifies it
+```
+
+The same applies to anything with both a native application and a website —
+Slack, Teams, a mail client. Use the plain category when you mean the activity
+regardless of how it was reached, and the `Chrome …` form when you mean
+specifically "this, in a browser tab".
+
+If you are unsure, use the plain one: it is the broader rule and behaves the way
+the list reads.
 
 ## Unclassified is not a category
 

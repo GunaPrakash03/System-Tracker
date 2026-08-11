@@ -192,15 +192,31 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 	 * never-classified ones summed into one figure, so the mapping's gaps were
 	 * invisible. They surface as "Unclassified" instead.
 	 */
+	/**
+	 * The bucket a stored category counts towards. "Chrome Neutral" is Neutral;
+	 * the prefix scopes where the rule applies, not what it counts as.
+	 */
+	private bucketOf(value: string): string {
+		return (value || '').replace(/^Chrome /, '') || 'Neutral';
+	}
+
 	public classify(title: string, processNames?: Set<string>, browser?: string): string | null {
 		const name = (title || '').toLowerCase();
 		if (!name) return null;
-		if (this.categories[name]) return this.categories[name];
+		// A "Chrome …" category is scoped to browser tabs, so it must not classify
+		// a desktop process of the same name — `spotify → Chrome Unproductive`
+		// marks Spotify in a tab and leaves the Spotify application alone.
+		const isTab = !processNames?.has(name);
+		const applies = (value: string) => isTab || !value.startsWith('Chrome ');
+		if (this.categories[name] && applies(this.categories[name])) {
+			return this.bucketOf(this.categories[name]);
+		}
 		let best = '';
 		for (const key of Object.keys(this.categories)) {
-			if (key && name.includes(key) && key.length > best.length) best = key;
+			if (!key || !applies(this.categories[key])) continue;
+			if (name.includes(key) && key.length > best.length) best = key;
 		}
-		if (best) return this.categories[best];
+		if (best) return this.bucketOf(this.categories[best]);
 
 		// Unmatched BROWSER TABS inherit the browser's own category, matching the
 		// Productivity page. The mapping is written against process names, but a
@@ -210,7 +226,7 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 		// browser's category.
 		if (browser && !processNames?.has(name)) {
 			const browserCategory = this.categories[browser.toLowerCase()];
-			if (browserCategory) return browserCategory;
+			if (browserCategory) return this.bucketOf(browserCategory);
 		}
 		// A genuinely unknown application — not a browser tab — stays
 		// unclassified, so gaps in the mapping remain visible.

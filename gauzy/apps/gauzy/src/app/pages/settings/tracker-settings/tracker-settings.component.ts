@@ -63,7 +63,19 @@ export class TrackerSettingsComponent implements OnInit {
 		{ value: '2700', label: '45 minutes' },
 		{ value: '3600', label: '1 hour' }
 	];
-	public readonly categories = ['Productive', 'Neutral', 'Unproductive'];
+	/**
+	 * The three plain categories apply wherever the name matches — a process, or
+	 * a browser tab's title.
+	 *
+	 * The two "Chrome …" categories apply ONLY when the match is a browser tab.
+	 * That is the difference between the Spotify desktop application and Spotify
+	 * open in a tab: `spotify → Unproductive` covers both, `spotify → Chrome
+	 * Unproductive` covers only the tab and leaves the desktop app to whatever
+	 * else classifies it. They count towards Neutral and Unproductive in the
+	 * totals; the prefix scopes *where* the rule applies, it is not a fourth and
+	 * fifth category.
+	 */
+	public readonly categories = ['Productive', 'Neutral', 'Unproductive', 'Chrome Neutral', 'Chrome Unproductive'];
 
 	/**
 	 * How long without keyboard or mouse before a moment counts as idle. The
