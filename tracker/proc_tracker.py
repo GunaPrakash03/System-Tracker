@@ -649,9 +649,17 @@ def is_active_now(cfg, overrides=None):
 #   portal    : xdg-desktop-portal. Works with nothing installed, but GNOME's
 #               portal always FLASHES the screen. Not silent — last resort.
 #
-# 'auto' prefers the durable extension, then falls back to the DeskTime-style
-# gnome trick (so capture is silent and immediate before the extension is
-# installed), and never silently falls back to the flashing portal.
+# 'auto' prefers the durable extension, then the DeskTime-style gnome trick (so
+# capture is silent and immediate before the extension is installed), and only
+# then the portal.
+#
+# NOTE: 'auto' DOES reach the portal, and the portal flashes. An earlier version
+# of this comment claimed it never did, which was wrong and cost a round of
+# "why is the screen flashing?" — the silent routes can succeed at the startup
+# probe and fail later, and every such failure flashes. If silence must be a
+# guarantee rather than a preference, set screenshot_method to "gnome" or
+# "extension": a fixed method never falls back, so a failed capture is a missing
+# screenshot rather than a flash.
 # --------------------------------------------------------------------------- #
 
 _portal_state = None      # (Gio, GLib, bus) once initialised; False if N/A

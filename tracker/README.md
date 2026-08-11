@@ -45,7 +45,7 @@ GAUZY_URL=http://localhost:3000 GAUZY_EMAIL=you@co GAUZY_PASSWORD=... \
 | `capture_screenshots` | Master enable — must be true for any capture. **Default `true`** |
 | `screenshot_gate` | `dashboard` (the Employees-page toggle decides) \| `config`. Default `dashboard` |
 | `screenshot_gate_refresh_seconds` | How often the dashboard toggle is re-read (default 30) |
-| `screenshot_method` | `auto` \| `extension` \| `gnome` \| `portal`. See below. Default `auto` |
+| `screenshot_method` | `gnome` \| `extension` \| `auto` \| `portal`. See below. Default `gnome` — `auto` can flash |
 | `screenshot_timeout_seconds` | Give up if capture does not answer (default 20) |
 | `maintain_timer` | Keep a tracking timer running so slots appear in the dashboard. **Default `true`** — see *Dashboard visibility* |
 | `timer_source` | Timer/TimeLog source label (default `DESKTOP`) |
@@ -180,13 +180,21 @@ notification. All routes are Wayland-native (no Xorg); two are silent:
 | `extension` | in-process GNOME Shell extension | **yes** | install + one logout |
 | `gnome` | own `org.gnome.Screenshot`, `Shell.Screenshot(flash=false)` — **exactly what DeskTime does on Wayland** | **yes** | none |
 | `portal` | `xdg-desktop-portal` | **no** — FLASHES | none |
-| `auto` (default) | `extension` → `gnome` → `portal` | silent unless neither silent route is available | none |
+| `auto` | `extension` → `gnome` → `portal` | **not guaranteed** — flashes whenever both silent routes fail | none |
 
-**`auto` is recommended.** It prefers the durable extension, falls back to the
-no-setup DeskTime-style `gnome` route (silent and working immediately), and only
-flashes if neither is available. To pin one: `gnome` for silent-with-no-setup,
-`extension` for the most durable silent route (install from
-[`gnome-extension/`](gnome-extension/README.md), then it auto-starts).
+**`gnome` is the default, not `auto`.** This was learned the hard way: under
+`auto`, the silent routes are tried per capture, and a route that succeeds at the
+startup probe can still fail later — GNOME's sender allowlist for
+`org.gnome.Screenshot` is the usual reason. Every such failure falls through to
+the portal and **flashes the employee's screen**, intermittently, all day, with
+the log still reporting "silent" from the startup probe.
+
+A fixed method never falls back. Under `gnome` a failed capture is a *missing
+screenshot* rather than a flash, which is the right trade for software that runs
+unattended on someone else's desk. Use `extension` for the most durable silent
+route (install from [`gnome-extension/`](gnome-extension/README.md), then it
+auto-starts). Use `auto` only where a flash is acceptable and coverage matters
+more than silence.
 
 **Extension vs gnome — why keep both.** The `gnome` route works today with zero
 setup, but leans on GNOME's sender allowlist for `org.gnome.Screenshot`, which a

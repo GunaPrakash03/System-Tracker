@@ -27,7 +27,7 @@
   "capture_screenshots": true,
   "screenshot_gate": "dashboard",
   "screenshot_gate_refresh_seconds": 30,
-  "screenshot_method": "auto",
+  "screenshot_method": "gnome",
   "screenshot_timeout_seconds": 20,
   "maintain_timer": true,
   "timer_source": "DESKTOP",

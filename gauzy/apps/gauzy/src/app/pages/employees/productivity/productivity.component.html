@@ -27,6 +27,7 @@
 
 			<h6 class="section-title">Summary</h6>
 
+			@if (canSeeCategories) {
 			<!-- One strip for the whole day. Identity is never colour alone: every
 			     segment is labelled beneath, and the table repeats the numbers. -->
 			<div class="strip" role="img"
@@ -40,6 +41,7 @@
 				<div class="seg idle" [style.width]="barWidth(summary.idle)"
 					[title]="'Idle ' + duration(summary.idle)"></div>
 			</div>
+			}
 
 			<table class="table mt-3">
 				<thead>
@@ -50,21 +52,27 @@
 					</tr>
 				</thead>
 				<tbody>
+					@if (canSeeCategories) {
 					<tr>
 						<td><i class="sw productive"></i>Productive</td>
 						<td>{{ duration(summary.productive) }}</td>
 						<td>{{ pct(summary.productive) | number: '1.0-0' }}%</td>
 					</tr>
+					}
+					@if (canSeeCategories) {
 					<tr>
 						<td><i class="sw neutral"></i>Neutral</td>
 						<td>{{ duration(summary.neutral) }}</td>
 						<td>{{ pct(summary.neutral) | number: '1.0-0' }}%</td>
 					</tr>
+					}
+					@if (canSeeCategories) {
 					<tr>
 						<td><i class="sw unproductive"></i>Unproductive</td>
 						<td>{{ duration(summary.unproductive) }}</td>
 						<td>{{ pct(summary.unproductive) | number: '1.0-0' }}%</td>
 					</tr>
+					}
 					<tr>
 						<td><i class="sw idle"></i>Idle</td>
 						<td>{{ duration(summary.idle) }}</td>
@@ -75,15 +83,20 @@
 						<td><b>{{ duration(summary.tracked) }}</b></td>
 						<td><b>100%</b></td>
 					</tr>
+					@if (canSeeCategories) {
 					<tr>
 						<!-- Outside the 100% on purpose — see the note below. -->
 						<td><i class="sw untracked"></i>Unmonitored</td>
 						<td>{{ duration(summary.unmonitored) }}</td>
 						<td class="text-hint">not counted</td>
 					</tr>
+					}
 				</tbody>
 			</table>
 
+			<!-- The ribbon is colour-coded by category, so it carries the same
+			     judgement as the table above and is gated with it. -->
+			@if (canSeeCategories) {
 			<!-- Across the day, hour by hour. The summary above answers "how much";
 			     this answers "when" — which of the two matters depends on the
 			     question being asked, so both are shown. -->
@@ -118,6 +131,7 @@
 				</div>
 				<div class="axis-title">Time</div>
 			</div>
+			}
 
 			<!-- Only shown when something is actually wrong (no data for the day).
 			     The standing explanations of how the figures are derived were
