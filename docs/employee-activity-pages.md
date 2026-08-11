@@ -1,9 +1,9 @@
 # Employee list and activity pages — specification
 
 **Status: specification, not built.** This describes a restructure of how an
-admin or manager reaches one employee's tracking data. Four open questions at the
-end need answers before implementation; two of them contradict decisions already
-taken, so they are not details.
+admin or manager reaches one employee's tracking data. Three open questions at
+the end need answers before implementation; the first contradicts a decision
+already taken, so it is not a detail.
 
 ## The problem
 
@@ -67,7 +67,11 @@ Clicking a name or ID opens the employee's own activity page. **The employee is
 part of the URL**, not a dropdown selection, so the view is linkable and survives
 a refresh.
 
-Tabs:
+**All seven are tabs on this one page** — a single tabset across the top, not
+seven sidebar entries and not seven separate pages. The employee is chosen once,
+from the list, and every tab then shows that same employee. Switching tabs
+changes only the last path segment; the employee and the selected date persist
+across the whole set.
 
 | Tab | Route | Component |
 |---|---|---|
@@ -78,6 +82,12 @@ Tabs:
 | App | `apps` | `AppUrlActivityComponent` |
 | Visited sites | `urls` | `AppUrlActivityComponent` |
 | Screenshots | `screenshots` | `ScreenshotModule` |
+
+All three of `apps`, `urls` and `apps-urls` are kept as tabs, decided
+deliberately. `apps` and `urls` are the same component filtered two ways and
+`apps-urls` is the combined report, so two of them are subsets of the third —
+that redundancy is accepted because each answers a question people actually ask
+("which applications", "which sites", "everything") without making anyone filter.
 
 The header employee dropdown is **removed on this page**. It is redundant once
 the employee is in the URL, and two sources of truth for the same selection is
@@ -103,17 +113,11 @@ nothing changes for them — or drops them, which reverses that decision and sho
 every employee their own URL history and app classification. **These are
 different products.** No default is safe here.
 
-**2. "App" versus "Visited sites" versus "Apps & URLs".** Gauzy has three
-overlapping views: `apps` and `urls` (both `AppUrlActivityComponent`, filtered)
-and the combined `apps-urls` report. Listing all three gives two tabs that are
-subsets of a third. Recommend either the combined report **or** the pair, not
-both — but confirm which.
-
-**3. Does the header employee dropdown disappear everywhere, or only here?**
+**2. Does the header employee dropdown disappear everywhere, or only here?**
 Other pages (Timesheets, Time & Activity) still use it. Removing it globally is a
 larger change; leaving it elsewhere means the header differs between pages.
 
-**4. Employee ID in the table.** Gauzy IDs are UUIDs
+**3. Employee ID in the table.** Gauzy IDs are UUIDs
 (`f58e24df-e425-48c1-a2d3-298c10a78acc`). A column of those is unreadable and
 unmemorable. Options: show the first segment, add a short sequential staff number
 of our own, or drop the column and rely on name plus email. A staff number is
