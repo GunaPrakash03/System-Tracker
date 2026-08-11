@@ -103,7 +103,12 @@
 			<div class="timeline" *ngIf="blocks.length">
 				<div class="track" role="img"
 					aria-label="Timeline of the day coloured by productive, neutral, unproductive and idle periods">
+					<!-- The separating hairline is drawn only on blocks wide enough
+					     to afford it. A minute-wide block is about 1.5px on this
+					     axis, so a 1px edge consumed most of it and the ribbon read
+					     as white stripes rather than as a day. -->
 					<div *ngFor="let b of blocks" class="block" [ngClass]="b.kind"
+						[class.divided]="b.w > 0.35"
 						[style.left.%]="b.x" [style.width.%]="b.w" [title]="b.label"></div>
 				</div>
 				<div class="axis">

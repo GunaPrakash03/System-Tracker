@@ -117,8 +117,14 @@
 			position: absolute;
 			top: 0;
 			height: 100%;
-			// A hairline in the surface colour separates touching blocks without
-			// outlining each one, which at minute widths would be all outline.
+		}
+		// A hairline in the surface colour separates touching blocks without
+		// outlining each one. Applied only where the block can afford it: the
+		// day spans ~840 minutes, so a one-minute block is roughly 1.5px wide and
+		// a 1px edge swallowed two thirds of it. Short spells then rendered as
+		// white stripes, which read as missing data — the one thing the grey
+		// track background exists to express unambiguously.
+		.block.divided {
 			box-shadow: inset -1px 0 0 var(--card-background-color, #fff);
 		}
 		.block.productive { background: var(--productive); }

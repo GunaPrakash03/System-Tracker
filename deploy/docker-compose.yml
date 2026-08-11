@@ -120,6 +120,12 @@ services:
       # Social and download links are removed rather than redirected — this is
       # an internal tool with no public downloads or social presence. Empty
       # values render as absent, not as broken links to gauzy.co.
+      # "Migrate to Ever Gauzy Cloud" (Settings → Import/Export) uploads this
+      # organisation's data to Ever's hosted service. It only fires when someone
+      # clicks it, but it is a one-click path for sending employee tracking data
+      # to a third party, so the destination is removed rather than left default.
+      GAUZY_CLOUD_APP: ''
+      GAUZY_CLOUD_ENDPOINT: ''
       COMPANY_GITHUB_LINK: ''
       COMPANY_GITLAB_LINK: ''
       COMPANY_FACEBOOK_LINK: ''

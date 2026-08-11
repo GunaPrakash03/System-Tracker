@@ -72,8 +72,19 @@ if (process.env.IS_ELECTRON && process.env.GAUZY_USER_PATH) {
 export const environment: IEnvironment = {
 	port: process.env.API_PORT || 3000,
 	host: process.env.API_HOST || 'http://localhost',
-	baseUrl: process.env.API_BASE_URL || 'https://api.gauzy.co',
-	clientBaseUrl: process.env.CLIENT_BASE_URL || 'https://app.gauzy.co',
+	// Empty, NOT Ever's hosted service. These defaults are compiled into the
+	// production bundle, so a build that forgets to set API_BASE_URL would point
+	// every request — including the login POST, credentials and all — at
+	// api.gauzy.co, a third party outside this organisation. Login would then
+	// fail because the accounts do not exist there, but only after the password
+	// had already been transmitted. Same class of leak as the Sentry DSN closed
+	// in docs/HANDOVER.md §7, and worse in consequence.
+	//
+	// Empty means same-origin: requests resolve relative to whatever host serves
+	// the page, which is exactly right for the single-endpoint deployment and
+	// cannot leak anywhere by accident.
+	baseUrl: process.env.API_BASE_URL || '',
+	clientBaseUrl: process.env.CLIENT_BASE_URL || '',
 	production: true,
 	envName: 'prod',
 
@@ -331,10 +342,14 @@ export const environment: IEnvironment = {
 	 * Email Template Config
 	 */
 	appIntegrationConfig: {
-		appName: process.env.APP_NAME || 'Gauzy',
-		appLogo: process.env.APP_LOGO || `${process.env.CLIENT_BASE_URL}/assets/images/logos/logo_Gauzy.png`,
-		appSignature: process.env.APP_SIGNATURE || 'Gauzy Team',
-		appLink: process.env.APP_LINK || 'https://app.gauzy.co/',
+		// Defaults reach real people: these go out in invitation, password-reset
+		// and confirmation emails. Ever's branding and a link to their hosted app
+		// in an email from us is worse than a broken link, so the fallbacks point
+		// at our own deployment instead. deploy/docker-compose.yml sets all four.
+		appName: process.env.APP_NAME || 'Young Globes Workspace',
+		appLogo: process.env.APP_LOGO || `${process.env.CLIENT_BASE_URL}/assets/images/logos/logo_young_globes.png`,
+		appSignature: process.env.APP_SIGNATURE || 'Young Globes',
+		appLink: process.env.APP_LINK || process.env.CLIENT_BASE_URL || '',
 		appEmailConfirmationUrl:
 			process.env.APP_EMAIL_CONFIRMATION_URL || `${process.env.CLIENT_BASE_URL}/#/auth/confirm-email`,
 		appMagicSignUrl: process.env.APP_MAGIC_SIGN_URL || `${process.env.CLIENT_BASE_URL}/#/auth/magic-sign-in`,
