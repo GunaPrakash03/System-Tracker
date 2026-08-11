@@ -31,11 +31,28 @@ export class TimeTrackerStatusService {
 
 	constructor(private readonly _timeTrackerService: TimeTrackerService, private readonly _store: Store) {
 		defer(() =>
+			// The organisation must be resolved before this fires, not merely the
+			// user. status() reads tenantId/organizationId out of timerConfig,
+			// which a separate subscription fills in when the selected
+			// organisation arrives — so gating on token+employee alone raced it
+			// and sent organizationId=undefined. The API answered 400
+			// ("organizationId must be a UUID") on every single page load, and
+			// catchError swallowed it: no console noise the user would report,
+			// and no timer status either. It looked like a working feature.
+			//
+			// Waiting for the organisation fixes both halves — the request stops
+			// failing AND the status actually loads.
 			of<boolean>(!!this._store.token && !!this._store.user?.employee).pipe(
 				switchMap((isEmployeeLoggedIn: boolean) =>
 					isEmployeeLoggedIn
-						? from(this.status()).pipe(
-								catchError(() => EMPTY),
+						? this._store.selectedOrganization$.pipe(
+								filter((organization) => !!organization?.id),
+								switchMap(() =>
+									from(this.status()).pipe(
+										catchError(() => EMPTY),
+										untilDestroyed(this)
+									)
+								),
 								untilDestroyed(this)
 						  )
 						: EMPTY

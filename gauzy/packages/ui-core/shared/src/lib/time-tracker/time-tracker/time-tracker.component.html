@@ -315,15 +315,12 @@
 			}
 		</form>
 	</nb-card-body>
-	<nb-card-footer [style.visibility]="hideAlert ? 'hidden' : 'visible'">
-		<nb-alert (close)="hideAlert = true" status="primary" class="alert" closable>
-			<nb-icon size="tiny" icon="info-outline"></nb-icon>
-			<div
-				[innerHTML]="
-					'TIMER_TRACKER.ALERT_DESKTOP_DOWNLOAD' | translate : { downloadURL: PLATFORM_WEBSITE_DOWNLOAD_URL }
-				"
-			></div>
-		</nb-alert>
-	</nb-card-footer>
+	<!-- The "Download and use the Gauzy Desktop Timer App" banner is removed.
+	     It advertised Ever's product by name from inside our dashboard and
+	     linked out to gauzy.co/downloads — and PLATFORM_WEBSITE_DOWNLOAD_URL is
+	     now empty here, so it was pointing nowhere regardless. Employees do not
+	     install their own tracking software on this deployment; the tracker and
+	     the agent are provisioned for them. -->
+	<nb-card-footer [style.visibility]="'hidden'" style="display: none"></nb-card-footer>
 </nb-card>
 }
