@@ -1,10 +1,9 @@
 # Employee list and activity pages — specification
 
 **Status: specification, not built.** This describes a restructure of how an
-admin or manager reaches one employee's tracking data. Four open questions at the
-end need answers before implementation; the first two are not details — one
-contradicts a decision already taken, the other removes a page with no
-replacement.
+admin or manager reaches one employee's tracking data. Three open questions at the
+end need answers before implementation; the first removes a page with no
+replacement, so it is not a detail.
 
 ## The problem
 
@@ -68,10 +67,21 @@ Columns, replacing the current set:
 | Time Tracking | `employee.isTrackingEnabled` | Already present |
 | Status | active / inactive | Already present |
 | Screen Capture | `employee.allowScreenshotCapture` | Already present |
-| Edit | link to the employee edit page | |
+| Actions | vertical 3-dot menu | **Edit** and **Delete** |
 
 Removed: Income, Expenses, Bonus average, Tags — none of them are tracking data,
 and they are the reason the table is too wide to read.
+
+The last column is a **vertical 3-dot button** opening a menu with **Edit** and
+**Delete**, not a bare Edit link. Two reasons: a delete needs somewhere to live
+and should not sit in the row as a standing button next to Edit, and the menu
+absorbs later actions without another column. Use Nebular's `nbContextMenu` with
+a per-row `nbContextMenuTag`, the pattern already used by the timesheet and
+invoice tables — the tag is what stops every row's menu opening at once.
+
+Delete must confirm before acting, and it deletes the EMPLOYEE record, not the
+tracked history. What happens to a deleted employee's time slots and screenshots
+is a data-retention question this spec does not answer.
 
 `apps/gauzy/src/app/pages/employees/employees.component.ts` builds these settings
 around line 700.
@@ -115,33 +125,36 @@ Every tab keeps the date-picker configuration its route already declares —
 single-day for the activity tabs, week for Apps & URLs. Changing that silently
 alters what each page shows.
 
-## 4. My work — same tabs
+## 4. My work — same tabs, same gates
 
 `/pages/employees/my-work` gains the same seven tabs, scoped to the signed-in
 employee. Registered in `MyWorkLayoutComponent.registerPageTabs()`; note that a
 route without a matching tab registration is reachable by URL but invisible.
 
+**An employee still sees Productivity and nothing else.** The existing
+`ORG_EMPLOYEES_VIEW` gates stay on every other tab, so in practice the seven-tab
+set is what an admin or manager sees when they open My work — the employee's own
+view is unchanged. That was settled deliberately: how long you worked is a fact
+about you, but the app classification, your URL history and the raw app list are
+management views, and showing someone the rule being applied to them is a
+different product decision from showing them their hours.
+
+The gate belongs on both the tab registration and the route, as it is today:
+hiding a tab is presentation, and only the route guard refuses a typed URL.
+
 ## Open questions
 
-**1. Who sees what on My work?** It was decided earlier that an employee sees
-Productivity only, and that App categories, Apps & URLs and App usage carry
-`ORG_EMPLOYEES_VIEW` so employees do not reach them. Adding all seven tabs to My
-work either keeps those gates — in which case an employee still sees one tab and
-nothing changes for them — or drops them, which reverses that decision and shows
-every employee their own URL history and app classification. **These are
-different products.** No default is safe here.
-
-**2. Timesheets becomes unreachable.** It is on the sidebar today and is not in
+**1. Timesheets becomes unreachable.** It is on the sidebar today and is not in
 the seven-tab list, so removing the sidebar entry leaves no route to it. Either
 it is genuinely unwanted and should be dropped from the feature toggles too, or
 it needs to be an eighth tab. It is Gauzy's own approvals-and-hours view, not
 one of ours.
 
-**3. Does the header employee dropdown disappear everywhere, or only here?**
+**2. Does the header employee dropdown disappear everywhere, or only here?**
 Other pages (Timesheets, Time & Activity) still use it. Removing it globally is a
 larger change; leaving it elsewhere means the header differs between pages.
 
-**4. Employee ID in the table.** Gauzy IDs are UUIDs
+**3. Employee ID in the table.** Gauzy IDs are UUIDs
 (`f58e24df-e425-48c1-a2d3-298c10a78acc`). A column of those is unreadable and
 unmemorable. Options: show the first segment, add a short sequential staff number
 of our own, or drop the column and rely on name plus email. A staff number is
