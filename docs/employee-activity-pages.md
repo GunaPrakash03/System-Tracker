@@ -24,24 +24,35 @@ with the employee in the URL.
 
 ## 1. Sidebar
 
-The Employees group collapses to two entries. Everything that was a sidebar link
-becomes a tab on the detail page instead.
+The Employees group stops being a group. It becomes a **direct link** to the
+employee list, with no children, and Screenshots sits beside it as its own entry.
 
 | Item | Link | Change |
 |---|---|---|
-| Manage | `/pages/employees` | **kept** — the employee list |
-| Screenshots | `/pages/employees/activity/screenshots` | **new**, its own link after Manage |
-| ~~Time & Activity~~ | | **removed** — becomes the App and Visited sites tabs |
-| ~~Productivity~~ | | **removed** — becomes the Productivity tab |
-| ~~Timesheets~~ | | **removed** — see the open question below |
+| **Employees** | `/pages/employees` | now a leaf — clicking it opens the list directly |
+| **Screenshots** | `/pages/employees/activity/screenshots` | new, its own link after Employees |
 
-Screenshots keeps its own link because it is the view people open directly and
-repeatedly; everything else is reached by picking an employee first.
+Everything that used to hang under Employees is gone from the sidebar:
 
-Defined in `packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts`,
-`_getEmployeesMenu()`. Screenshots takes the same `permissionKeys` and
-`featureKey` as Time & Activity did, so the trim in
-`config/minimal-tracking-features.sql` continues to govern it.
+| Removed | Where it went |
+|---|---|
+| Manage | *is* Employees now — the link goes straight to the list |
+| Time & Activity | the App and Visited sites tabs |
+| Productivity | the Productivity tab |
+| Timesheets | nowhere — see the open question below |
+
+Screenshots keeps a link of its own because it is opened directly and
+repeatedly. Everything else is reached by picking an employee from the list
+first, which is the point of the restructure.
+
+**This is a structural change to the menu, not a relabelling.** In
+`base-nav-menu.component.ts` `_getEmployeesMenu()`, `employees` is currently a
+section with an `items` array and no `link` of its own; it becomes an item with a
+`link` and no `items`. The expand/collapse chevron disappears with the children.
+Its `permissionKeys` (`ORG_EMPLOYEES_VIEW`) and `featureKey` move onto the leaf
+so the same people see it and the SQL feature trim still governs it. Screenshots
+takes the `featureKey` Time & Activity used, so
+`config/minimal-tracking-features.sql` continues to control it.
 
 ## 2. Employee list page — `/pages/employees`
 
