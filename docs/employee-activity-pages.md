@@ -1,9 +1,10 @@
 # Employee list and activity pages — specification
 
 **Status: specification, not built.** This describes a restructure of how an
-admin or manager reaches one employee's tracking data. Three open questions at
-the end need answers before implementation; the first contradicts a decision
-already taken, so it is not a detail.
+admin or manager reaches one employee's tracking data. Four open questions at the
+end need answers before implementation; the first two are not details — one
+contradicts a decision already taken, the other removes a page with no
+replacement.
 
 ## The problem
 
@@ -23,21 +24,24 @@ with the employee in the URL.
 
 ## 1. Sidebar
 
-Under **Employees**, add a direct entry for Screenshots:
+The Employees group collapses to two entries. Everything that was a sidebar link
+becomes a tab on the detail page instead.
 
-| Item | Link |
-|---|---|
-| Manage | `/pages/employees` |
-| Time & Activity | `/pages/employees/activity` |
-| **Screenshots** *(new)* | `/pages/employees/activity/screenshots` |
-| Productivity | `/pages/employees/productivity` |
-| Timesheets | `/pages/employees/timesheets` |
+| Item | Link | Change |
+|---|---|---|
+| Manage | `/pages/employees` | **kept** — the employee list |
+| Screenshots | `/pages/employees/activity/screenshots` | **new**, its own link after Manage |
+| ~~Time & Activity~~ | | **removed** — becomes the App and Visited sites tabs |
+| ~~Productivity~~ | | **removed** — becomes the Productivity tab |
+| ~~Timesheets~~ | | **removed** — see the open question below |
+
+Screenshots keeps its own link because it is the view people open directly and
+repeatedly; everything else is reached by picking an employee first.
 
 Defined in `packages/ui-core/core/src/lib/components/base-nav-menu/base-nav-menu.component.ts`,
 `_getEmployeesMenu()`. Screenshots takes the same `permissionKeys` and
-`featureKey` as Time & Activity, so the trim in
-`config/minimal-tracking-features.sql` keeps them together rather than leaving
-one visible and the other hidden.
+`featureKey` as Time & Activity did, so the trim in
+`config/minimal-tracking-features.sql` continues to govern it.
 
 ## 2. Employee list page — `/pages/employees`
 
@@ -73,15 +77,18 @@ from the list, and every tab then shows that same employee. Switching tabs
 changes only the last path segment; the employee and the selected date persist
 across the whole set.
 
-| Tab | Route | Component |
-|---|---|---|
-| Productivity | `productivity` | `ProductivityComponent` |
-| App categories | `app-categories` | `AppCategoriesComponent` |
-| Apps & URLs | `apps-urls` | `AppsUrlsReportModule` |
-| App usage | `app-usage` | `AppUsageComponent` |
-| App | `apps` | `AppUrlActivityComponent` |
-| Visited sites | `urls` | `AppUrlActivityComponent` |
-| Screenshots | `screenshots` | `ScreenshotModule` |
+| Tab | Route | Component | Comes from |
+|---|---|---|---|
+| Productivity | `productivity` | `ProductivityComponent` | My work |
+| App categories | `app-categories` | `AppCategoriesComponent` | My work |
+| Apps & URLs | `apps-urls` | `AppsUrlsReportModule` | My work |
+| App usage | `app-usage` | `AppUsageComponent` | My work |
+| App | `apps` | `AppUrlActivityComponent` | Time & Activity |
+| Visited sites | `urls` | `AppUrlActivityComponent` | Time & Activity |
+| Screenshots | `screenshots` | `ScreenshotModule` | Time & Activity |
+
+Nothing here is new work beyond routing: all seven components exist and are in
+use today. The change is where they are reached from.
 
 All three of `apps`, `urls` and `apps-urls` are kept as tabs, decided
 deliberately. `apps` and `urls` are the same component filtered two ways and
@@ -113,11 +120,17 @@ nothing changes for them — or drops them, which reverses that decision and sho
 every employee their own URL history and app classification. **These are
 different products.** No default is safe here.
 
-**2. Does the header employee dropdown disappear everywhere, or only here?**
+**2. Timesheets becomes unreachable.** It is on the sidebar today and is not in
+the seven-tab list, so removing the sidebar entry leaves no route to it. Either
+it is genuinely unwanted and should be dropped from the feature toggles too, or
+it needs to be an eighth tab. It is Gauzy's own approvals-and-hours view, not
+one of ours.
+
+**3. Does the header employee dropdown disappear everywhere, or only here?**
 Other pages (Timesheets, Time & Activity) still use it. Removing it globally is a
 larger change; leaving it elsewhere means the header differs between pages.
 
-**3. Employee ID in the table.** Gauzy IDs are UUIDs
+**4. Employee ID in the table.** Gauzy IDs are UUIDs
 (`f58e24df-e425-48c1-a2d3-298c10a78acc`). A column of those is unreadable and
 unmemorable. Options: show the first segment, add a short sequential staff number
 of our own, or drop the column and rely on name plus email. A staff number is
