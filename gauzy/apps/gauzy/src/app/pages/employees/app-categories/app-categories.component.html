@@ -2,50 +2,62 @@
 	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
 		<p class="text-hint">
 			Which applications counted as <b>productive</b>, <b>neutral</b> or <b>unproductive</b>,
-			and for how long they were on screen. Categories are set per department in
-			Settings → Tracker settings, because the same application can be one team's
-			work and another's distraction.
+			and for how long they were on screen. A browser appears under every category it
+			earned time in — its tabs are classified individually and then rolled up, so the
+			same browser can be productive for the ticket system and neutral for a video.
+			Categories are set per department in Settings → Tracker settings.
 		</p>
 
 		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
 
 		<div *ngIf="!loading && !departmentSet" class="alert alert-warning">
-			This employee has no department, so no category mapping applies and every
-			application below falls to Neutral by default. Assign a department to
-			classify them.
+			This employee has no department, so no category mapping applies and everything
+			below is unclassified. Assign a department to classify them.
 		</div>
 
 		<ng-container *ngIf="hasAnything; else nothing">
 			<div *ngFor="let g of groups" class="group">
-				<h6 class="group-title">
-					<i class="sw" [ngClass]="g.cssClass"></i>{{ g.name }}
-					<span class="group-total">{{ fmt(g.totalSeconds) }}</span>
-					<span class="group-pct">{{ sharePct(g.totalSeconds) | number: '1.0-0' }}%</span>
-				</h6>
+				<ng-container *ngIf="g.rows.length">
+					<h6 class="group-title">
+						<i class="sw" [ngClass]="g.cssClass"></i>{{ g.name }}
+						<span class="group-total">{{ fmt(g.totalSeconds) }}</span>
+						<span class="group-pct">{{ sharePct(g.totalSeconds) | number: '1.0-0' }}%</span>
+					</h6>
 
-				<table class="table" *ngIf="g.rows.length; else emptyGroup">
-					<thead>
-						<tr>
-							<th>App</th>
-							<th class="num">On screen</th>
-							<th class="num">Share of day</th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr *ngFor="let r of g.rows">
-							<td>{{ r.title }}</td>
-							<td class="num strong">{{ fmt(r.onScreenSeconds) }}</td>
-							<td class="num">
-								<span class="bar" [ngClass]="g.cssClass" [style.width.%]="sharePct(r.onScreenSeconds)"></span>
-								<span class="pct">{{ sharePct(r.onScreenSeconds) | number: '1.0-0' }}%</span>
-							</td>
-						</tr>
-					</tbody>
-				</table>
+					<!-- Unclassified is not a verdict, it is a gap in the mapping. Saying
+					     so beats letting it read as a fourth category of behaviour. -->
+					<p *ngIf="g.name === 'Unclassified'" class="text-hint unclassified-note">
+						Matched nothing in this department's list, so it counted towards no
+						category. Add these to Settings → Tracker settings to classify them.
+					</p>
 
-				<ng-template #emptyGroup>
-					<p class="text-hint empty">Nothing in this category today.</p>
-				</ng-template>
+					<table class="table">
+						<thead>
+							<tr>
+								<th>App</th>
+								<th class="num">On screen</th>
+								<th class="num">Share of day</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr *ngFor="let r of g.rows">
+								<!-- The rolled-up window titles hang off the tooltip: the row
+								     answers "how long", the tooltip answers "doing what". -->
+								<td [title]="r.titles.join('\n')">
+									{{ r.app }}
+									<span class="titles-count" *ngIf="r.titles.length > 1">
+										{{ r.titles.length }} windows
+									</span>
+								</td>
+								<td class="num strong">{{ fmt(r.seconds) }}</td>
+								<td class="num">
+									<span class="bar" [ngClass]="g.cssClass" [style.width.%]="sharePct(r.seconds)"></span>
+									<span class="pct">{{ sharePct(r.seconds) | number: '1.0-0' }}%</span>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</ng-container>
 			</div>
 		</ng-container>
 

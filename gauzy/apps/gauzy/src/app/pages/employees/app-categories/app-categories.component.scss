@@ -5,6 +5,9 @@
 	--productive: #12805c;
 	--neutral: #2a78d6;
 	--unproductive: #c0392b;
+	// Grey, deliberately: unclassified is the absence of a verdict, not a fourth
+	// kind of behaviour, and must not read as one.
+	--unclassified: #9aa0a6;
 	--ink-muted: rgba(0, 0, 0, 0.55);
 
 	.group {
@@ -40,6 +43,19 @@
 		&.unproductive {
 			background: var(--unproductive);
 		}
+		&.unclassified {
+			background: var(--unclassified);
+		}
+	}
+
+	.unclassified-note {
+		margin: -0.25rem 0 0.5rem 1.25rem;
+	}
+
+	.titles-count {
+		margin-left: 0.5rem;
+		font-size: 0.75rem;
+		color: var(--ink-muted);
 	}
 
 	.group-total {
@@ -91,6 +107,9 @@
 		}
 		&.unproductive {
 			background: var(--unproductive);
+		}
+		&.unclassified {
+			background: var(--unclassified);
 		}
 	}
 

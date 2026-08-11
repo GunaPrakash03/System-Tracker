@@ -11,32 +11,43 @@ import { debounceTime, tap } from 'rxjs/operators';
  *
  * Separate from the Productivity page on purpose. That page answers "how much of
  * the day was productive" and is shown to the employee themselves; this one
- * exposes the *classification* behind that number — the list of applications and
- * the verdict attached to each. That is management information: it is the rule
- * being applied to someone, not a fact about their day, and it is the thing a
- * manager needs when a figure is questioned.
+ * exposes the *classification* behind that number, which is what a manager needs
+ * when a figure is questioned.
  *
  * Restricted to ADMIN / SUPER_ADMIN / MANAGER by the route guard in
- * my-work.module.ts, using the same ORG_EMPLOYEES_VIEW permission that already
- * gates the Apps & URLs and App usage tabs. Which employees a manager may open
- * is enforced server-side and is a separate question from this one.
+ * my-work.module.ts, using the same ORG_EMPLOYEES_VIEW permission that gates the
+ * Apps & URLs and App usage tabs.
  *
- * The categories themselves are per DEPARTMENT, not global: the same application
- * can be someone's job and someone else's distraction, so a browser is
- * productive for support and neutral for accounts. The mapping lives in the
- * tracker settings, keyed by the employee's department.
+ * Rows are one per APPLICATION per category, so a browser appears under each
+ * category it earned time in — productive for the ticket system, neutral for a
+ * video — rather than as one row with a single verdict. Classification is still
+ * per window title, because that is the only level at which a browser can be
+ * split at all; the titles are then rolled up into the owning application.
+ *
+ * Categories are per DEPARTMENT: the same application can be one team's job and
+ * another's distraction.
  */
 interface CategoryRow {
-	title: string;
-	onScreenSeconds: number;
+	/** The owning application, e.g. "chrome" — not the window title. */
+	app: string;
+	seconds: number;
+	/** Distinct window titles rolled into this row, for the tooltip. */
+	titles: string[];
 }
 
 interface CategoryGroup {
-	name: 'Productive' | 'Neutral' | 'Unproductive';
+	name: 'Productive' | 'Neutral' | 'Unproductive' | 'Unclassified';
 	cssClass: string;
 	rows: CategoryRow[];
 	totalSeconds: number;
 }
+
+/**
+ * Browsers, for attributing a tab title back to the application that showed it.
+ * Mirrors the tracker's own default `browsers` list; a title that is not itself
+ * a process name came from one of these.
+ */
+const BROWSERS = ['chrome', 'chromium', 'firefox', 'edge', 'brave', 'opera', 'safari', 'vivaldi'];
 
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -61,12 +72,6 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 		private readonly dateRangePickerBuilderService: DateRangePickerBuilderService
 	) {}
 
-	/**
-	 * Driven by the dashboard's own header selectors, like every other tab here.
-	 * A second employee dropdown inside the page can disagree with the header
-	 * one, which produces an empty report that reads as a fault rather than a
-	 * mismatch.
-	 */
 	ngOnInit(): void {
 		combineLatest([this.store.selectedEmployee$, this.dateRangePickerBuilderService.selectedDateRange$])
 			.pipe(
@@ -109,49 +114,53 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 			this.categories = (dept && data.app_categories?.[dept]) || {};
 
 			const usage = data.usage;
-			const hours = usage?.date === this.date ? usage.hours || {} : {};
+			const sameDay = usage?.date === this.date;
+			const hours = sameDay ? usage.hours || {} : {};
+			const apps = sameDay ? usage.apps || {} : {};
 
-			// Classify by TAB TITLE, not by process name — the same source and the
-			// same fallback the Productivity page uses, so the two agree by
-			// construction.
-			//
-			// `usage.apps` is keyed by process, and reading it here was wrong: it
-			// collapsed every browser tab into a single "chrome" row and gave the
-			// whole lot one verdict. A day of YouTube and a day of the dashboard
-			// both read as "chrome — productive", which is precisely the
-			// distinction this page exists to draw. `hours[h].focus` keys by the
-			// window title instead, so a video is separable from the ticket
-			// system even though both are Chrome.
-			//
-			// Days recorded before the tracker published `focus` fall back to that
-			// hour's per-process `apps`, which is coarse but honest.
-			const totals: Record<string, number> = {};
+			// Process names, for telling an application apart from a tab title.
+			// `usage.apps` is keyed by process; `hours[h].focus` mixes the two —
+			// "gnome-terminal-server" is a process, "HR Portal - Young Globes" is a
+			// tab inside a browser.
+			const processNames = new Set(Object.keys(apps).map((a) => a.toLowerCase()));
+			const browser = Object.keys(apps).find((a) => BROWSERS.includes(a.toLowerCase()));
+
+			// Classify per TITLE — the only level at which a browser splits at all —
+			// then roll the titles up into the owning application.
+			const acc: Record<string, { seconds: number; titles: Set<string> }> = {};
 			for (const hb of Object.values(hours) as any[]) {
+				// Days recorded before the tracker published `focus` fall back to
+				// that hour's per-process apps: coarse, but honest.
 				const classifiable = Object.keys(hb?.focus || {}).length ? hb.focus : hb?.apps || {};
 				for (const [title, secs] of Object.entries(classifiable) as [string, any][]) {
 					const n = Number(secs || 0);
-					if (n > 0) totals[title] = (totals[title] || 0) + n;
+					if (n <= 0) continue;
+					const category = this.classify(title) || 'Unclassified';
+					const app = this.owningApp(title, processNames, browser);
+					const key = `${category} ${app}`;
+					const bucket = (acc[key] ||= { seconds: 0, titles: new Set<string>() });
+					bucket.seconds += n;
+					bucket.titles.add(title);
 				}
 			}
 
-			const buckets: Record<string, CategoryRow[]> = { Productive: [], Neutral: [], Unproductive: [] };
-			for (const [title, onScreenSeconds] of Object.entries(totals)) {
-				// On-screen seconds only. Running time would list every headless
-				// service as "neutral for 8 hours", which says nothing about how
-				// anybody spent their day — see the App usage tab for why the two
-				// measurements must not share a column.
-				if (onScreenSeconds <= 0) continue;
-				const cat = this.categorise(title);
-				(buckets[cat] || buckets['Neutral']).push({ title, onScreenSeconds });
-			}
-
-			this.groups = (['Productive', 'Neutral', 'Unproductive'] as const).map((name) => {
-				const rows = (buckets[name] || []).sort((a, b) => b.onScreenSeconds - a.onScreenSeconds);
+			const names = ['Productive', 'Neutral', 'Unproductive', 'Unclassified'] as const;
+			this.groups = names.map((name) => {
+				const rows: CategoryRow[] = Object.entries(acc)
+					.filter(([k]) => k.startsWith(`${name} `))
+					.map(([k, v]) => ({
+						// slice, not split: an app name can contain spaces, which happens
+					// when no browser was running and the title is kept as-is.
+						app: k.slice(name.length + 1),
+						seconds: v.seconds,
+						titles: [...v.titles].sort()
+					}))
+					.sort((a, b) => b.seconds - a.seconds);
 				return {
 					name,
 					cssClass: name.toLowerCase(),
 					rows,
-					totalSeconds: rows.reduce((s, r) => s + r.onScreenSeconds, 0)
+					totalSeconds: rows.reduce((s, r) => s + r.seconds, 0)
 				};
 			});
 		} catch (e: any) {
@@ -162,26 +171,39 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 	}
 
 	/**
-	 * Longest-substring match, matching the Productivity page exactly.
+	 * Which application showed this window.
 	 *
-	 * The mapping holds fragments rather than exact process names, so "chrome"
-	 * can classify "Google Chrome" and a tab title alike. Longest wins, so a
-	 * specific rule ("youtube") beats a general one ("chrome") regardless of the
-	 * order keys happen to be stored in. Anything unmatched is Neutral: an
-	 * unclassified application is not evidence of anything.
+	 * A focus key that is itself a process name IS the application. Anything else
+	 * is a tab title, and a tab can only have come from a browser — so it is
+	 * attributed to whichever browser was running. With no browser in the day's
+	 * process list the title is left as-is rather than invented.
 	 */
-	public categorise(title: string): string {
+	private owningApp(title: string, processNames: Set<string>, browser: string | undefined): string {
+		if (processNames.has((title || '').toLowerCase())) return title;
+		return browser || title;
+	}
+
+	/**
+	 * Longest-substring match against the department's mapping, matching the
+	 * Productivity page's rule so the two pages agree.
+	 *
+	 * Returns null when nothing matches, rather than defaulting to Neutral. The
+	 * default is what made Neutral a dumping ground: genuinely-neutral apps and
+	 * never-classified ones summed into one figure, so the mapping's gaps were
+	 * invisible. They surface as "Unclassified" instead.
+	 */
+	public classify(title: string): string | null {
 		const name = (title || '').toLowerCase();
-		if (!name) return 'Neutral';
+		if (!name) return null;
 		if (this.categories[name]) return this.categories[name];
 		let best = '';
 		for (const key of Object.keys(this.categories)) {
 			if (key && name.includes(key) && key.length > best.length) best = key;
 		}
-		return best ? this.categories[best] : 'Neutral';
+		return best ? this.categories[best] : null;
 	}
 
-	/** Share of the day's on-screen time across all three categories. */
+	/** Share of the day's on-screen time across every group, Unclassified included. */
 	public sharePct(seconds: number): number {
 		const total = this.groups.reduce((s, g) => s + g.totalSeconds, 0);
 		return total ? (seconds / total) * 100 : 0;
