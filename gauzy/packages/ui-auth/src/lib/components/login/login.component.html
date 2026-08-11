@@ -197,30 +197,13 @@
 					{{ 'BUTTONS.LOGIN' | translate }}
 				</button>
 			</div>
-			<div class="login-magic-wrapper">
-				<a routerLink="/auth/login-magic">
-					{{ 'LOGIN_PAGE.LOGIN_MAGIC.TITLE' | translate }}
-				</a>
-			</div>
 		</form>
-		<div class="hr-div-soft"></div>
-		<section>
-			<ngx-social-links></ngx-social-links>
-		</section>
-		<div class="hr-div-soft"></div>
-		<section class="another-action" aria-label="Sign In Workspace">
-			{{ 'WORKSPACES.UNKNOWN_WORKSPACE' | translate }}
-			<a class="text-link" routerLink="/auth/login-workspace">
-				{{ 'WORKSPACES.FIND_WORKSPACE' | translate }}
-			</a>
-		</section>
-
-		<section class="another-action" aria-label="Register">
-			{{ 'LOGIN_PAGE.DO_NOT_HAVE_ACCOUNT_TITLE' | translate }}
-			<a class="text-link" routerLink="/auth/register">
-				{{ 'BUTTONS.REGISTER' | translate }}
-			</a>
-		</section>
+		<!-- Magic-code login, social sign-in, the workspace finder and the
+		     registration link are deliberately absent. This deployment has no
+		     self-service signup — accounts are created by an administrator —
+		     there is a single workspace, and no external identity provider is
+		     configured. Every one of those links led somewhere that either does
+		     not apply here or does not work at all. -->
 	</div>
 	<div class="features-wrapper">
 		@if (!electronService?.isElectron && isDemo) {
