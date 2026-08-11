@@ -578,7 +578,12 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 
 			this.smartTableSource = new ServerDataSource(this._httpClient, {
 				endPoint: `${API_PREFIX}/employee/pagination`,
-				relations: ['user', 'tags'],
+				// user.role and organizationDepartments are needed for the Role and
+				// Department columns. Without them those cells render empty, which
+				// reads as "this employee has no role" rather than "we did not ask
+				// for it" — and Department in particular drives app categorisation,
+				// so a blank there is actively misleading.
+				relations: ['user', 'user.role', 'tags', 'organizationDepartments'],
 				withDeleted: this.includeDeleted, // Include soft-deleted records if flag is true
 				where: {
 					organizationId,
@@ -701,7 +706,7 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 			{
 				dataTableId: this.dataTableId,
 				columnId: 'fullName',
-				order: 0,
+				order: 1,
 				title: () => this.getTranslation('SM_TABLE.FULL_NAME'),
 				type: 'custom',
 				class: 'align-row',
@@ -720,8 +725,25 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 			},
 			{
 				dataTableId: this.dataTableId,
+				columnId: 'employeeCode',
+				order: 0,
+				title: () => this.getTranslation('SM_TABLE.EMPLOYEE_ID'),
+				type: 'text',
+				class: 'align-row',
+				width: '10%',
+				isFilterable: false,
+				isSortable: false,
+				// The FIRST SEGMENT of the UUID, not the whole thing. A column of
+				// f58e24df-e425-48c1-a2d3-298c10a78acc is unreadable and unmemorable,
+				// and it pushes every other column off the screen. Eight hex characters
+				// are enough to tell two rows apart and to quote to a colleague; the
+				// full id is still what the row links to.
+				valuePrepareFunction: (_: any, cell: Cell) => String(cell.getRow().getData()?.id || '').split('-')[0]
+			},
+			{
+				dataTableId: this.dataTableId,
 				columnId: 'email',
-				order: 1,
+				order: 2,
 				title: () => this.getTranslation('SM_TABLE.EMAIL'),
 				type: 'text',
 				class: 'align-row',
@@ -735,48 +757,30 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 			},
 			{
 				dataTableId: this.dataTableId,
-				columnId: 'averageIncome',
-				order: 2,
-				title: () => this.getTranslation('SM_TABLE.INCOME'),
-				type: 'custom',
-				isFilterable: false,
-				isSortable: true,
-				class: 'text-center',
-				width: '5%',
-				renderComponent: EmployeeAverageIncomeComponent,
-				componentInitFunction: (instance: EmployeeAverageIncomeComponent, cell: Cell) => {
-					instance.rowData = cell.getRow().getData();
-				}
-			},
-			{
-				dataTableId: this.dataTableId,
-				columnId: 'averageExpenses',
+				columnId: 'roleName',
 				order: 3,
-				title: () => this.getTranslation('SM_TABLE.EXPENSES'),
-				type: 'custom',
+				title: () => this.getTranslation('SM_TABLE.ROLE'),
+				type: 'text',
+				class: 'align-row',
+				width: '10%',
 				isFilterable: false,
-				isSortable: true,
-				class: 'text-center',
-				width: '5%',
-				renderComponent: EmployeeAverageExpensesComponent,
-				componentInitFunction: (instance: EmployeeAverageExpensesComponent, cell: Cell) => {
-					instance.rowData = cell.getRow().getData();
-				}
+				isSortable: false,
+				valuePrepareFunction: (_: any, cell: Cell) => cell.getRow().getData()?.user?.role?.name || '—'
 			},
 			{
 				dataTableId: this.dataTableId,
-				columnId: 'averageBonus',
+				columnId: 'department',
 				order: 4,
-				title: () => this.getTranslation('SM_TABLE.BONUS_AVG'),
-				type: 'custom',
+				title: () => this.getTranslation('SM_TABLE.DEPARTMENT'),
+				type: 'text',
+				class: 'align-row',
+				width: '12%',
 				isFilterable: false,
-				isSortable: true,
-				class: 'text-center',
-				width: '5%',
-				renderComponent: EmployeeAverageBonusComponent,
-				componentInitFunction: (instance: EmployeeAverageBonusComponent, cell: Cell) => {
-					instance.rowData = cell.getRow().getData();
-				}
+				isSortable: false,
+				// An employee can hold several departments; the categorisation only
+				// uses one, so all of them are shown rather than silently picking.
+				valuePrepareFunction: (_: any, cell: Cell) =>
+					(cell.getRow().getData()?.organizationDepartments || []).map((d: any) => d?.name).filter(Boolean).join(', ') || '—'
 			},
 			{
 				dataTableId: this.dataTableId,
@@ -800,32 +804,8 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 			},
 			{
 				dataTableId: this.dataTableId,
-				columnId: 'tags',
-				order: 6,
-				title: () => this.getTranslation('SM_TABLE.TAGS'),
-				type: 'custom',
-				width: '20%',
-				isFilterable: true,
-				isSortable: false,
-				filter: {
-					type: 'custom',
-					component: TagsColorFilterComponent
-				},
-				filterFunction: (tags: ITag[]) => {
-					const tagIds = tags.map((tag) => tag.id);
-					this.setFilter({ field: 'tags', search: tagIds });
-					return tags.length > 0;
-				},
-				renderComponent: TagsOnlyComponent,
-				componentInitFunction: (instance: TagsOnlyComponent, cell: Cell) => {
-					instance.rowData = cell.getRow().getData();
-					instance.value = cell.getValue();
-				}
-			},
-			{
-				dataTableId: this.dataTableId,
 				columnId: 'workStatus',
-				order: 7,
+				order: 6,
 				title: () => this.getTranslation('SM_TABLE.STATUS'),
 				type: 'custom',
 				class: 'text-center',
@@ -914,7 +894,7 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 		this._pageDataTableRegistryService.registerPageDataTableColumn({
 			dataTableId: this.dataTableId, // The identifier for the data table location
 			columnId: 'allowScreenshotCapture', // The identifier for the column
-			order: 8, // The order of the column in the table
+			order: 7, // The order of the column in the table
 			title: () => this.getTranslation('SM_TABLE.SCREEN_CAPTURE'), // The title of the column
 			type: 'custom', // The type of the column
 			class: 'text-center', // The class of the column

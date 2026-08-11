@@ -357,7 +357,9 @@
 		"ENABLE_DISABLE_INTEGRATION": "Enable / Disable Integration",
 		"ACTIONS": "Actions",
 		"LOADING": "Loading...",
-		"LOADING_MORE": "Loading more..."
+		"LOADING_MORE": "Loading more...",
+		"EMPLOYEE_ID": "Employee ID",
+		"DEPARTMENT": "Department"
 	},
 	"FORM": {
 		"USERNAME": "Username",
@@ -1182,6 +1184,7 @@
 		"TEAM_TASKS": "Team's Tasks",
 		"PRODUCTIVITY": "Productivity",
 		"TIME_ACTIVITY": "Time & Activity",
+		"SCREENSHOTS": "Screenshots",
 		"TIMESHEETS": "Timesheets",
 		"SCHEDULES": "Schedules",
 		"EMAIL_TEMPLATES": "Email Templates",

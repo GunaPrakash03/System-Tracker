@@ -524,170 +524,47 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 	 * Returns the employees menu section with sub-items.
 	 */
 	private _getEmployeesMenu(): NavMenuSectionItem[] {
+		// Two leaves, not a group.
+		//
+		// Employees used to be an expandable section over Manage, Time & Activity,
+		// Productivity, Timesheets and a dozen HR pages. Everything that reported
+		// ON an employee is now a TAB on that employee's own page, reached by
+		// picking them from the list — so the section has nothing left to expand
+		// and becomes a direct link to the list itself.
+		//
+		// Screenshots keeps a link of its own because it is opened directly and
+		// repeatedly, rather than per employee.
+		//
+		// The permission and feature keys move onto the leaves. On the old section
+		// they gated the group; drop them and an employee sees the entry, or the
+		// trim in config/minimal-tracking-features.sql stops governing it.
 		return [
 			{
 				id: 'employees',
 				title: 'Employees',
 				icon: 'fas fa-user-friends',
+				link: '/pages/employees',
+				pathMatch: 'prefix',
 				data: {
 					translationKey: 'MENU.EMPLOYEES',
-					// Reporting ABOUT staff, so admins and managers only. Some
-					// children (Timesheets, Time & Activity) are reachable with
-					// TIME_TRACKER alone, which an employee holds — so without a
-					// gate on the group itself an employee still saw the section.
-					permissionKeys: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
-				},
-				items: [
-					{
-						id: 'employees-manage',
-						title: 'Manage',
-						icon: 'fas fa-list',
-						link: '/pages/employees',
-						pathMatch: 'full',
-						data: {
-							translationKey: 'MENU.MANAGE',
-							permissionKeys: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEES
-						}
-					},
-					{
-						id: 'employees-time-activity',
-						title: 'Time & Activity',
-						icon: 'fas fa-chart-line',
-						link: '/pages/employees/activity',
-						pathMatch: 'prefix',
-						data: {
-							translationKey: 'MENU.TIME_ACTIVITY',
-							permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
-						}
-					},
-					{
-						// Gated on the same feature key as Time & Activity so the
-						// sidebar trim in config/minimal-tracking-features.sql keeps
-						// them together rather than leaving one visible and the
-						// other hidden.
-						id: 'employees-productivity',
-						title: 'Productivity',
-						icon: 'fas fa-chart-column',
-						link: '/pages/employees/productivity',
-						pathMatch: 'prefix',
-						data: {
-							translationKey: 'MENU.PRODUCTIVITY',
-							permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
-						}
-					},
-					{
-						id: 'employees-timesheets',
-						title: 'Timesheets',
-						icon: 'far fa-clock',
-						link: '/pages/employees/timesheets',
-						pathMatch: 'prefix',
-						data: {
-							translationKey: 'MENU.TIMESHEETS',
-							permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIMESHEETS
-						}
-					},
-					{
-						id: 'employees-appointments',
-						title: 'Appointments',
-						icon: 'fas fa-calendar-week',
-						link: '/pages/employees/appointments',
-						pathMatch: 'prefix',
-						data: {
-							translationKey: 'MENU.APPOINTMENTS',
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_APPOINTMENT
-						}
-					},
-					{
-						id: 'employees-approvals',
-						title: 'Approvals',
-						icon: 'fas fa-repeat',
-						link: '/pages/employees/approvals',
-						data: {
-							translationKey: 'MENU.APPROVALS',
-							permissionKeys: [PermissionsEnum.REQUEST_APPROVAL_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_APPROVAL,
-							...this._addLink(
-								'/pages/employees/approvals?openAddDialog=true',
-								PermissionsEnum.ALL_ORG_EDIT,
-								PermissionsEnum.REQUEST_APPROVAL_EDIT
-							)
-						}
-					},
-					{
-						id: 'employees-levels',
-						title: 'Employee Levels',
-						icon: 'fas fa-chart-bar',
-						link: `/pages/employees/employee-level`,
-						data: {
-							translationKey: 'MENU.EMPLOYEE_LEVEL',
-							permissionKeys: [PermissionsEnum.ALL_ORG_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_LEVEL
-						}
-					},
-					{
-						id: 'employees-positions',
-						title: 'Positions',
-						icon: 'fas fa-award',
-						link: `/pages/employees/positions`,
-						data: {
-							translationKey: 'MENU.POSITIONS',
-							permissionKeys: [PermissionsEnum.ALL_ORG_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_POSITION
-						}
-					},
-					{
-						id: 'employees-time-off',
-						title: 'Time Off',
-						icon: 'far fa-times-circle',
-						link: '/pages/employees/time-off',
-						data: {
-							translationKey: 'MENU.TIME_OFF',
-							permissionKeys: [PermissionsEnum.ALL_ORG_VIEW, PermissionsEnum.TIME_OFF_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIMEOFF,
-							...this._addLink(
-								'/pages/employees/time-off?openAddDialog=true',
-								PermissionsEnum.ALL_ORG_EDIT,
-								PermissionsEnum.TIME_OFF_ADD
-							)
-						}
-					},
-					{
-						id: 'employees-recurring-expenses',
-						title: 'Recurring Expenses',
-						icon: 'fas fa-exchange-alt fa-rotate-90',
-						link: '/pages/employees/recurring-expenses',
-						data: {
-							translationKey: 'MENU.RECURRING_EXPENSE',
-							permissionKeys: [PermissionsEnum.EMPLOYEE_EXPENSES_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_RECURRING_EXPENSE,
-							...this._addLink(
-								'/pages/employees/recurring-expenses?openAddDialog=true',
-								PermissionsEnum.ALL_ORG_EDIT,
-								PermissionsEnum.EMPLOYEE_EXPENSES_EDIT
-							)
-						}
-					},
-					{
-						id: 'employees-candidates',
-						title: 'Candidates',
-						icon: 'fas fa-user-check',
-						link: '/pages/employees/candidates',
-						data: {
-							translationKey: 'MENU.CANDIDATES',
-							permissionKeys: [PermissionsEnum.ORG_CANDIDATES_VIEW],
-							featureKey: FeatureEnum.FEATURE_EMPLOYEE_CANDIDATE,
-							...this._addLink(
-								'/pages/employees/candidates?openAddDialog=true',
-								PermissionsEnum.ALL_ORG_EDIT,
-								PermissionsEnum.ORG_CANDIDATES_EDIT
-							)
-						}
-					}
-				]
+					// Reporting ABOUT staff, so admins and managers only.
+					permissionKeys: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+					featureKey: FeatureEnum.FEATURE_EMPLOYEES
+				}
+			},
+			{
+				id: 'employees-screenshots',
+				title: 'Screenshots',
+				icon: 'fas fa-camera',
+				link: '/pages/employees/activity/screenshots',
+				pathMatch: 'prefix',
+				data: {
+					translationKey: 'MENU.SCREENSHOTS',
+					permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
+					// The same key Time & Activity carried, so the SQL feature trim
+					// keeps governing this view now that its old parent is gone.
+					featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
+				}
 			}
 		];
 	}
