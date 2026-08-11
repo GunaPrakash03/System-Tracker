@@ -89,7 +89,25 @@ export class ActivityModule {
 				permissions: {
 					only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
 					redirectTo: '/pages/employees/my-work'
+				},
+				// Single-day, matching every other activity tab. Without this the
+				// route declares no range at all, and the date picker is *shared*
+				// global state (DateRangePickerBuilderService) — so arriving from
+				// Timesheets → Weekly or Calendar ('week') or Approvals ('month')
+				// left that wider range in place and the gallery showed yesterday's
+				// screenshots next to today's. The API was filtering correctly the
+				// whole time; the page was asking for the wrong window.
+				datePicker: {
+					unitOfTime: 'day',
+					isLockDatePicker: true,
+					isSaveDatePicker: false,
+					isSingleDatePicker: true,
+					isDisableFutureDate: true
 				}
+			},
+			resolve: {
+				dates: DateRangePickerResolver,
+				bookmarkParams: BookmarkQueryParamsResolver
 			},
 			loadChildren: () => import('./screenshot/screenshot.module').then((m) => m.ScreenshotModule)
 		});
