@@ -3,6 +3,7 @@
 /tracker/config.json
 /dashboard-mods/*.bak
 /deploy/.env
+/deploy/edge/www/
 
 __pycache__/
 *.pyc

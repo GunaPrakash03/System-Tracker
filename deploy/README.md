@@ -9,6 +9,43 @@ For Railway rather than a single host, see `docs/railway-deployment.md` — same
 topology, same variables, different plumbing. The reasoning behind one URL is in
 `docs/single-endpoint-deployment.md`.
 
+## Two ways to get there
+
+| | `docker-compose.yml` | `docker-compose.edge.yml` |
+|---|---|---|
+| Runs | Postgres, API and nginx as containers | nginx only, in front of the host stack |
+| Needs | its own images built from `gauzy/` (~12 GB RAM, tens of minutes) | nothing built — starts in seconds |
+| API comes from | our own image | `gauzy-stack start`, i.e. `yarn start:api` from source |
+| Use it for | Railway, and anything real | local work today |
+
+The edge path exists because the full build is genuinely expensive and this box
+is tight on disk. It gives the same single-origin behaviour over the stack that
+is already running.
+
+```bash
+gauzy-stack start                 # API on :3000, db container
+cd deploy
+./edge/stage.sh                   # copy the dist and rewrite the baked origin
+docker compose -f docker-compose.edge.yml up -d
+```
+
+Then `http://localhost:8080` — dashboard at `/`, API proxied at `/api/`.
+
+**Why staging is needed at all.** The dist that `gauzy-stack` serves is a
+*development* Angular build, so `API_BASE_URL` is compiled into `main.js` as a
+literal `http://localhost:3000`. The production Docker image does not have this
+problem — `replacements.sed` substitutes the value at container start. Serving
+the dev bundle behind a proxy without rewriting it would give one origin for the
+page and a different one for every XHR, which is the two-origin problem in
+disguise. `stage.sh` copies the dist and rewrites all four occurrences: the
+`API_BASE_URL` itself, a guard that compares against that same default, and two
+OAuth redirect URLs. It never edits the source dist, which a rebuild would
+overwrite anyway.
+
+**The staged copy is a snapshot.** Rerun `./edge/stage.sh` after every UI
+rebuild, or you will be looking at the previous build and wondering why a change
+did not appear.
+
 ## First run
 
 ```bash

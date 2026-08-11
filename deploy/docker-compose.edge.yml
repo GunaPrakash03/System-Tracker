@@ -1,0 +1,28 @@
+# Single endpoint in front of the from-source stack — no image build required.
+#
+#   ./edge/stage.sh                             # copy + rewrite the built dist
+#   docker compose -f docker-compose.edge.yml up -d
+#   open http://localhost:8080
+#
+# Expects `gauzy-stack start` to be running: the API from source on :3000 and
+# the `db` container. This serves the dashboard and proxies /api/ to that API,
+# so there is one origin.
+#
+# docker-compose.yml is the other path — it builds our own images and runs the
+# API and Postgres as containers, which is what Railway deploys. Use this one
+# for local work; use that one for anything real.
+
+name: system-tracker-edge
+
+services:
+  edge:
+    image: nginx:alpine
+    container_name: st-edge
+    restart: unless-stopped
+    # The API binds 127.0.0.1 only, so a bridge network cannot reach it. Host
+    # networking puts nginx on the same loopback — which also means the `ports:`
+    # key does not apply here; the listen directive in nginx.conf is the port.
+    network_mode: host
+    volumes:
+      - ./edge/www:/srv/gauzy:ro
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
