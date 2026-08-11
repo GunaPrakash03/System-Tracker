@@ -109,15 +109,37 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 			this.categories = (dept && data.app_categories?.[dept]) || {};
 
 			const usage = data.usage;
-			const apps = usage?.date === this.date ? usage.apps || {} : {};
+			const hours = usage?.date === this.date ? usage.hours || {} : {};
+
+			// Classify by TAB TITLE, not by process name — the same source and the
+			// same fallback the Productivity page uses, so the two agree by
+			// construction.
+			//
+			// `usage.apps` is keyed by process, and reading it here was wrong: it
+			// collapsed every browser tab into a single "chrome" row and gave the
+			// whole lot one verdict. A day of YouTube and a day of the dashboard
+			// both read as "chrome — productive", which is precisely the
+			// distinction this page exists to draw. `hours[h].focus` keys by the
+			// window title instead, so a video is separable from the ticket
+			// system even though both are Chrome.
+			//
+			// Days recorded before the tracker published `focus` fall back to that
+			// hour's per-process `apps`, which is coarse but honest.
+			const totals: Record<string, number> = {};
+			for (const hb of Object.values(hours) as any[]) {
+				const classifiable = Object.keys(hb?.focus || {}).length ? hb.focus : hb?.apps || {};
+				for (const [title, secs] of Object.entries(classifiable) as [string, any][]) {
+					const n = Number(secs || 0);
+					if (n > 0) totals[title] = (totals[title] || 0) + n;
+				}
+			}
 
 			const buckets: Record<string, CategoryRow[]> = { Productive: [], Neutral: [], Unproductive: [] };
-			for (const [title, v] of Object.entries(apps) as [string, any][]) {
+			for (const [title, onScreenSeconds] of Object.entries(totals)) {
 				// On-screen seconds only. Running time would list every headless
 				// service as "neutral for 8 hours", which says nothing about how
 				// anybody spent their day — see the App usage tab for why the two
 				// measurements must not share a column.
-				const onScreenSeconds = Number(v?.s || 0);
 				if (onScreenSeconds <= 0) continue;
 				const cat = this.categorise(title);
 				(buckets[cat] || buckets['Neutral']).push({ title, onScreenSeconds });
