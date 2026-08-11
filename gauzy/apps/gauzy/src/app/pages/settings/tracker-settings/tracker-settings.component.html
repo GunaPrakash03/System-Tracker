@@ -71,9 +71,22 @@
 			<p class="text-hint">
 				Stored in Gauzy against each employee, so there is no separate service to run.
 				Apps are matched on <b>process name</b> — what the tracker reports, such as
-				<code>chrome</code>, <code>code</code> or <code>postgres</code>. The same app can be
-				productive for one department and unproductive for another. Anything unclassified counts
-				as Neutral.
+				<code>chrome</code>, <code>code</code> or <code>postgres</code>. Matching is on the
+				longest entry contained in the name, so <code>terminal</code> also classifies
+				<code>gnome-terminal-server</code>, and an exact entry always beats a partial one.
+				The same app can be productive for one department and unproductive for another.
+			</p>
+			<p class="text-hint">
+				<b>Browsers work by exception.</b> A browser's time is recorded per tab, so classify
+				the browser itself — <code>chrome: Productive</code> — and then list only the tabs
+				that differ, matching on words from the page title: <code>youtube: Neutral</code>,
+				<code>spotify: Unproductive</code>. Every other tab takes the browser's category.
+				You do not need an entry per site.
+			</p>
+			<p class="text-hint">
+				An application matching nothing at all is left <b>unclassified</b> and counts towards
+				no category — it appears in its own group on the App categories tab, so gaps in this
+				list stay visible rather than quietly inflating Neutral.
 			</p>
 			<nb-select [(selected)]="appDept" (selectedChange)="refreshApps()" placeholder="Department">
 				<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>

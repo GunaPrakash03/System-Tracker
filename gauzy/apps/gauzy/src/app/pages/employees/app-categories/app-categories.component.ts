@@ -135,7 +135,7 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 				for (const [title, secs] of Object.entries(classifiable) as [string, any][]) {
 					const n = Number(secs || 0);
 					if (n <= 0) continue;
-					const category = this.classify(title) || 'Unclassified';
+					const category = this.classify(title, processNames, browser) || 'Unclassified';
 					const app = this.owningApp(title, processNames, browser);
 					const key = `${category} ${app}`;
 					const bucket = (acc[key] ||= { seconds: 0, titles: new Set<string>() });
@@ -192,7 +192,7 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 	 * never-classified ones summed into one figure, so the mapping's gaps were
 	 * invisible. They surface as "Unclassified" instead.
 	 */
-	public classify(title: string): string | null {
+	public classify(title: string, processNames?: Set<string>, browser?: string): string | null {
 		const name = (title || '').toLowerCase();
 		if (!name) return null;
 		if (this.categories[name]) return this.categories[name];
@@ -200,7 +200,21 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 		for (const key of Object.keys(this.categories)) {
 			if (key && name.includes(key) && key.length > best.length) best = key;
 		}
-		return best ? this.categories[best] : null;
+		if (best) return this.categories[best];
+
+		// Unmatched BROWSER TABS inherit the browser's own category, matching the
+		// Productivity page. The mapping is written against process names, but a
+		// browser's time arrives keyed by tab title and a title rarely contains
+		// the word "chrome" — so "chrome: Productive" would otherwise classify
+		// nothing it was meant to. Name the exceptions; the rest take the
+		// browser's category.
+		if (browser && !processNames?.has(name)) {
+			const browserCategory = this.categories[browser.toLowerCase()];
+			if (browserCategory) return browserCategory;
+		}
+		// A genuinely unknown application — not a browser tab — stays
+		// unclassified, so gaps in the mapping remain visible.
+		return null;
 	}
 
 	/** Share of the day's on-screen time across every group, Unclassified included. */

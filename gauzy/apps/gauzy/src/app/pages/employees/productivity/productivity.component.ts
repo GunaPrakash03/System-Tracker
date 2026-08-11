@@ -108,6 +108,13 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 
 	private categories: Record<string, string> = {};
 	/**
+	 * Process names seen today, for telling an application apart from a window
+	 * title. `usage.apps` is keyed by process; `hours[h].focus` mixes the two.
+	 */
+	private processNames: Set<string> = new Set();
+	/** The browser among those processes, if any — lowercased. */
+	private browserApp = '';
+	/**
 	 * Dominant category per hour, from the tracker's per-hour app mix.
 	 *
 	 * Time slots carry how long was active but not which app, so the ribbon takes
@@ -202,6 +209,13 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 			this.categories = (dept && data.app_categories?.[dept]) || {};
 
 			const usage = data.usage;
+			// Recorded before the hour loop so categorise() can fall back to the
+			// browser's category for tabs that match nothing.
+			this.processNames = new Set(Object.keys(usage?.apps || {}).map((a) => a.toLowerCase()));
+			this.browserApp =
+				[...this.processNames].find((a) =>
+					['chrome', 'chromium', 'firefox', 'edge', 'brave', 'opera', 'safari', 'vivaldi'].includes(a)
+				) || '';
 			const hours = usage?.date === this.date ? usage.hours || {} : {};
 			const marks = (usage?.date === this.date ? usage.marks : null) || {};
 			const segments = (usage?.date === this.date ? usage.segments : null) || [];
@@ -403,7 +417,29 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 		for (const key of Object.keys(this.categories)) {
 			if (key && name.includes(key) && key.length > best.length) best = key;
 		}
-		return best ? this.categories[best] : 'Neutral';
+		if (best) return this.categories[best];
+
+		// Nothing matched. If this was a BROWSER TAB, inherit the browser's own
+		// category rather than falling to Neutral.
+		//
+		// The mapping is written against process names — "chrome: Productive" —
+		// but a browser's focus time arrives keyed by tab title, and a title
+		// rarely contains the word "chrome". So classifying chrome as Productive
+		// did nothing for the tabs it was meant to cover: every unlisted page
+		// silently became Neutral, and the entry only appeared to work because
+		// the listed ones (youtube, zoho mail) matched on their own. Renaming the
+		// dashboard from "Gauzy" to "Young Globes Workspace" exposed it — the
+		// "gauzy" entry stopped matching and a quarter of the day moved to
+		// Neutral overnight with no setting changed.
+		//
+		// Inheriting means the list reads as intended: name the exceptions
+		// (youtube neutral, spotify unproductive) and everything else in the
+		// browser takes the browser's category.
+		if (!this.processNames.has(name) && this.browserApp) {
+			const browserCategory = this.categories[this.browserApp];
+			if (browserCategory) return browserCategory;
+		}
+		return 'Neutral';
 	}
 
 	/**
