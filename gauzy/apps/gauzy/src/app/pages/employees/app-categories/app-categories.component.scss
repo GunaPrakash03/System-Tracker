@@ -52,7 +52,21 @@
 		margin: -0.25rem 0 0.5rem 1.25rem;
 	}
 
-	.titles-count {
+	// A tab title can be very long ("(11 unread) - Inbox - Zoho Mail (…)"), so it
+	// is clamped rather than allowed to force the table wide. The full string is
+	// on the title attribute.
+	.row-title {
+		display: inline-block;
+		max-width: 46rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		vertical-align: bottom;
+	}
+
+	// Which application showed it. Muted, because the title is the answer and
+	// this is the footnote.
+	.row-app {
 		margin-left: 0.5rem;
 		font-size: 0.75rem;
 		color: var(--ink-muted);

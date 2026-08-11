@@ -2,10 +2,10 @@
 	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
 		<p class="text-hint">
 			Which applications counted as <b>productive</b>, <b>neutral</b> or <b>unproductive</b>,
-			and for how long they were on screen. A browser appears under every category it
-			earned time in — its tabs are classified individually and then rolled up, so the
-			same browser can be productive for the ticket system and neutral for a video.
-			Categories are set per department in Settings → Tracker settings.
+			and for how long they were on screen. Each row is a window or browser tab, with
+			the application that showed it in grey — so a browser appears under every
+			category its tabs earned time in, productive for the ticket system and neutral
+			for a video. Categories are set per department in Settings → Tracker settings.
 		</p>
 
 		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
@@ -41,13 +41,12 @@
 						</thead>
 						<tbody>
 							<tr *ngFor="let r of g.rows">
-								<!-- The rolled-up window titles hang off the tooltip: the row
-								     answers "how long", the tooltip answers "doing what". -->
-								<td [title]="r.titles.join('\n')">
-									{{ r.app }}
-									<span class="titles-count" *ngIf="r.titles.length > 1">
-										{{ r.titles.length }} windows
-									</span>
+								<!-- The title is the row, because "chrome - 3 windows" hides exactly
+								     what this page exists to show. The owning app follows it so a tab
+								     stays attributable to its browser. -->
+								<td [title]="r.title">
+									<span class="row-title">{{ r.title }}</span>
+									<span class="row-app" *ngIf="r.app">{{ r.app }}</span>
 								</td>
 								<td class="num strong">{{ fmt(r.seconds) }}</td>
 								<td class="num">

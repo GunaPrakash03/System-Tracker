@@ -18,21 +18,21 @@ import { debounceTime, tap } from 'rxjs/operators';
  * my-work.module.ts, using the same ORG_EMPLOYEES_VIEW permission that gates the
  * Apps & URLs and App usage tabs.
  *
- * Rows are one per APPLICATION per category, so a browser appears under each
- * category it earned time in — productive for the ticket system, neutral for a
- * video — rather than as one row with a single verdict. Classification is still
- * per window title, because that is the only level at which a browser can be
- * split at all; the titles are then rolled up into the owning application.
+ * Rows are one per WINDOW TITLE per category — the tab, not the browser. A row
+ * reading "chrome, 3 windows" hides the one thing this page exists to show, so
+ * each page keeps its own line and the owning application follows it as a
+ * footnote. A browser therefore appears under every category it earned time in,
+ * because its individual tabs land in different ones.
  *
  * Categories are per DEPARTMENT: the same application can be one team's job and
  * another's distraction.
  */
 interface CategoryRow {
-	/** The owning application, e.g. "chrome" — not the window title. */
+	/** The window or tab title — what the person was actually looking at. */
+	title: string;
+	/** The application that showed it, e.g. "chrome". Empty when the two are the same. */
 	app: string;
 	seconds: number;
-	/** Distinct window titles rolled into this row, for the tooltip. */
-	titles: string[];
 }
 
 interface CategoryGroup {
@@ -126,8 +126,8 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 			const browser = Object.keys(apps).find((a) => BROWSERS.includes(a.toLowerCase()));
 
 			// Classify per TITLE — the only level at which a browser splits at all —
-			// then roll the titles up into the owning application.
-			const acc: Record<string, { seconds: number; titles: Set<string> }> = {};
+			// and keep the title as the row.
+			const acc: Record<string, number> = {};
 			for (const hb of Object.values(hours) as any[]) {
 				// Days recorded before the tracker published `focus` fall back to
 				// that hour's per-process apps: coarse, but honest.
@@ -137,24 +137,24 @@ export class AppCategoriesComponent implements OnInit, OnDestroy {
 					if (n <= 0) continue;
 					const category = this.classify(title, processNames, browser) || 'Unclassified';
 					const app = this.owningApp(title, processNames, browser);
-					const key = `${category} ${app}`;
-					const bucket = (acc[key] ||= { seconds: 0, titles: new Set<string>() });
-					bucket.seconds += n;
-					bucket.titles.add(title);
+					// One row per TITLE, not per application: "chrome — 3 windows"
+					// hides the very thing the page is for. The owning app is kept
+					// alongside so a tab is still attributable to its browser.
+					// NUL separates the parts because neither a category nor a title
+					// can contain one, unlike a space.
+					const key = `${category}\u0000${title}\u0000${app === title ? '' : app}`;
+					acc[key] = (acc[key] || 0) + n;
 				}
 			}
 
 			const names = ['Productive', 'Neutral', 'Unproductive', 'Unclassified'] as const;
 			this.groups = names.map((name) => {
 				const rows: CategoryRow[] = Object.entries(acc)
-					.filter(([k]) => k.startsWith(`${name} `))
-					.map(([k, v]) => ({
-						// slice, not split: an app name can contain spaces, which happens
-					// when no browser was running and the title is kept as-is.
-						app: k.slice(name.length + 1),
-						seconds: v.seconds,
-						titles: [...v.titles].sort()
-					}))
+					.filter(([k]) => k.startsWith(`${name}\u0000`))
+					.map(([k, seconds]) => {
+						const [, title, app] = k.split('\u0000');
+						return { title, app, seconds };
+					})
 					.sort((a, b) => b.seconds - a.seconds);
 				return {
 					name,
