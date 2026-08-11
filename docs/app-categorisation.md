@@ -58,6 +58,36 @@ spotify:  Unproductive   <- exception
 Reading: *everything in Chrome is productive except YouTube, which is neutral,
 and Spotify, which is unproductive.* You list the exceptions, not every site.
 
+### What that looks like on the App categories tab
+
+The tab lists **one row per application per category**, so a browser appears
+under *every* category it earned time in. With the three entries above, a day
+spent mostly in the ticket system, partly on YouTube and briefly on Spotify
+renders as:
+
+```
+Productive        2h 06m   78%
+  gnome-terminal-server    1h 45m
+  chrome                      21m     <- dashboard, Slack, YG Portal, Zoho Mail
+Neutral             29m   18%
+  chrome                      29m     <- YouTube
+Unproductive         2m    1%
+  spotify                      2m
+Unclassified        12m    -
+  sublime_merge                8m     <- not in the list at all
+```
+
+`chrome` legitimately appears three times. That is the point: one process, three
+verdicts, decided per tab. The row is the roll-up; hovering it lists the window
+titles that produced it, so "chrome 29m neutral" can be traced to the specific
+videos without a row per video cluttering the page.
+
+Note what is **not** needed: there are no `chrome neutral` or `chrome
+unproductive` entries in Tracker settings, and adding them would do nothing. The
+split comes from classifying the *tabs* — `youtube`, `spotify` — while `chrome`
+supplies the default for everything else. One entry per exception, and the
+categories fall out of it.
+
 ## Unclassified is not a category
 
 An application that matches nothing — and is not a browser tab — is left
