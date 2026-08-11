@@ -1,5 +1,9 @@
 # Serving the dashboard and API from one URL
 
+This document is the *why* and the general shape. For the Railway implementation
+— concrete services, variables, start commands and order of work — see
+`docs/railway-deployment.md`.
+
 **Status: proposal, not yet done.** Everything here is grounded in the files
 named, but the production Docker path has never been exercised with our changes
 — locally we run `ng build --configuration development` behind a small static
@@ -123,10 +127,12 @@ do so **silently**, because the tracker is written to treat a failed post as a
 transient error and carry on. Set:
 
 ```json
-{ "gauzy_url": "https://tracker.example.com" }
+{ "server_url": "https://tracker.example.com" }
 ```
 
-The tracker appends `/api/...` itself, so the base URL is all it needs.
+The key is `server_url` (`tracker/proc_tracker.py:196`, `:1077`), not
+`gauzy_url`. The tracker appends `/api/...` itself, so the base URL is all it
+needs.
 
 ## 5. Order of work
 

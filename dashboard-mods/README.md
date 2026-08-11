@@ -1,8 +1,21 @@
 # Gauzy dashboard modifications — the proper (rebuilt) version
 
-Three dashboard changes, applied to the **Gauzy Angular source** and deployed by
-rebuilding the web app (not a runtime CSS/JS hack). Source edits live in
-`gauzy-dashboard.patch`; this file is the build + deploy runbook.
+Changes applied to the **Gauzy source** and deployed by rebuilding (not a runtime
+CSS/JS hack). This file is the build + deploy runbook.
+
+**The source lives in this repo, under `gauzy/`.** The whole Gauzy tree is
+vendored here via `git subtree`, so every file is ours to edit directly — there
+is no patch to apply and nothing to keep in sync. The customisations are 36 files
+of that tree, of which **7 are API files under `packages/core` and
+`packages/contracts`**, not UI.
+
+Upstream is still reachable. `git subtree pull --prefix=gauzy <upstream> master
+--squash` merges security fixes from `ever-co/ever-gauzy` on top of our changes;
+conflicts, when they come, are confined to the files listed below.
+
+The API changes are the reason **Ever's published images cannot be deployed**:
+`ghcr.io/ever-co/gauzy-api` does not contain them. Both the API and the webapp
+image must be built from this branch. See `docs/railway-deployment.md`.
 
 ## What the changes do
 
@@ -13,6 +26,14 @@ rebuilding the web app (not a runtime CSS/JS hack). Source edits live in
 | 3 | **Auto-refresh every 60s** instead of 5 min, so the dashboard pulls fresh DB data promptly | same `.ts` (`setAutoRefresh`) |
 | 4 | **Settings → Tracker Settings** page: per-employee screenshot interval, media-as-idle, and per-department app categories | `apps/gauzy/src/app/pages/settings/tracker-settings/` (new) |
 | 5 | Route + menu entry + translation for #4 | `settings.routes.ts`, `base-nav-menu.component.ts`, `i18n/en.json` |
+| 6 | **App usage** and **Productivity** pages under Employees → Activity | `apps/gauzy/src/app/pages/employees/{activity/app-usage,productivity}/` (new) |
+| 7 | **My work** layout | `apps/gauzy/src/app/pages/employees/my-work/` (new) |
+| 8 | **Manager scoping** — which employees a manager may see | `packages/core/.../employee/managed-employee.service.ts`, `employee.service.ts` |
+| 9 | Time-slot and activity services adjusted for tracker-published data | `packages/core/.../time-tracking/{time-slot,activity}/` |
+| 10 | Per-employee settings carried on the employee model | `packages/contracts/.../employee.model.ts`, employee DTO + create handler |
+
+Rows 8–10 are **API-side**. They change `packages/core`, so the API image is a
+custom build too — this is not a web-only patch set.
 
 Change #4 renders a page whose **data lives in `admin/settings_app.py`**, not in Gauzy —
 Gauzy has no per-employee screenshot interval, no media-as-idle rule and no
@@ -40,14 +61,11 @@ the menu permission merely hides the link.
 
 ## Build + deploy
 
-Run from the Gauzy checkout. Use `!` in the Claude prompt to run each in-session,
-or a normal terminal.
+Run from `gauzy/` in this repo. Use `!` in the Claude prompt to run each
+in-session, or a normal terminal.
 
 ```bash
-cd ~/ever-gauzy
-
-# 0. Apply the source changes (skip if already applied — they are, currently)
-git apply ~/System-Tracker/dashboard-mods/gauzy-dashboard.patch   # if starting clean
+cd ~/System-Tracker/gauzy
 
 # 1. Select Node >= 24, THEN get yarn — corepack writes its shim into the
 #    active version's bin dir, so this order matters.
@@ -89,7 +107,7 @@ docker exec webapp sh -c 'rm -rf /srv/gauzy && mv /srv/gauzy_new /srv/gauzy'
 ```bash
 docker exec webapp sh -c 'rm -rf /srv/gauzy && mv /srv/gauzy_old /srv/gauzy'
 # and to drop the source edits:
-cd ~/ever-gauzy && git checkout -- \
+cd ~/System-Tracker/gauzy && git checkout -- \
   packages/ui-core/shared/src/lib/time-tracker/time-tracker/time-tracker.component.html \
   packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.ts \
   packages/plugins/dashboard-time-track-angular-ui/src/lib/components/time-tracking/time-tracking.component.html
