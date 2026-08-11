@@ -262,7 +262,19 @@
 				document.body.setAttribute('data-skeleton-theme', 'gauzy-light');
 			}
 		</script>
-		<!-- Asynchronous script loading to improve performance -->
-		<script src="https://cdn.ckeditor.com/4.22.1/full-all/ckeditor.js" async></script>
+		<!-- CKEditor from our own origin, never cdn.ckeditor.com. The CDN copy was
+		     third-party JavaScript executing inside the dashboard on every page
+		     load, sending our users' IP and referrer to CKSource, and it left the
+		     dashboard broken whenever this host was offline or firewalled. The
+		     file is copied from the ckeditor4 npm package at build time (see the
+		     assets globs in project.json) and is version 4.22.1 — the same build
+		     the CDN served.
+
+		     Deliberately NOT async. The Angular wrapper falls back to fetching a
+		     CDN copy whenever window.CKEDITOR is missing, so an async load races
+		     the first editor component and can reintroduce the external request
+		     it is the point of this change to remove. Blocking on a 680KB
+		     same-origin file is the cheaper trade. -->
+		<script src="assets/ckeditor/ckeditor.js"></script>
 	</body>
 </html>

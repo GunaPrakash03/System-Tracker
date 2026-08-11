@@ -35,6 +35,11 @@
 						"glob": "**/*",
 						"input": "packages/ui-core/i18n/assets/i18n",
 						"output": "assets/i18n/"
+					},
+					{
+						"glob": "**/*",
+						"input": "node_modules/ckeditor4",
+						"output": "assets/ckeditor/"
 					}
 				],
 				"styles": [
@@ -217,6 +222,11 @@
 						"glob": "**/*",
 						"input": "packages/ui-core/i18n/assets/i18n",
 						"output": "assets/i18n/"
+					},
+					{
+						"glob": "**/*",
+						"input": "node_modules/ckeditor4",
+						"output": "assets/ckeditor/"
 					}
 				],
 				"styles": [
@@ -329,6 +339,11 @@
 						"glob": "**/*",
 						"input": "packages/ui-core/i18n/assets/i18n",
 						"output": "assets/i18n/"
+					},
+					{
+						"glob": "**/*",
+						"input": "node_modules/ckeditor4",
+						"output": "assets/ckeditor/"
 					}
 				],
 				"styles": [

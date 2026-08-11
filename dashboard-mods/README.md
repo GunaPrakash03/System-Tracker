@@ -74,6 +74,42 @@ A blanket find-and-replace would also collide with upstream on every future
 `git subtree pull`. Most of these strings sit on pages the feature trim in
 `config/minimal-tracking-features.sql` hides anyway.
 
+### External services — what was removed, and what remains
+
+Nothing in the dashboard should reach a third party without a deliberate reason.
+The audit and the removals:
+
+| Destination | Was | Now |
+|---|---|---|
+| `api.gauzy.co` | fallback for `API_BASE_URL` in `environment.prod.ts` | **empty** — same-origin |
+| `app.gauzy.co` | fallback for `CLIENT_BASE_URL` and for e-mail `appLink` | **empty** / our own origin |
+| `cdn.ckeditor.com` | `<script>` in `index.html`, fetched on **every page load** | served from `assets/ckeditor/`, copied from the npm package at build time |
+| `GAUZY_CLOUD_APP` / `GAUZY_CLOUD_ENDPOINT` | Ever's hosted service | blanked in `deploy/docker-compose.yml` |
+| Sentry | Ever Co's project | DSN empty (`docs/HANDOVER.md` §7) |
+| PostHog, Jitsu, Chatwoot, Cloudinary, Google Maps | — | no keys baked into the image; inert |
+| Wasabi, DigitalOcean Spaces, S3 | — | only reachable if `FILE_PROVIDER` selects them; we use `LOCAL` |
+
+Three of these deserve their reasoning recorded, because each looked harmless.
+
+**The `api.gauzy.co` fallback was a credential leak, not a broken link.** It is
+compiled into the bundle, so a production build that forgot `API_BASE_URL` would
+send every request — the login POST included — to a third party. Login then
+fails, because the accounts do not exist there; but the password has already
+been transmitted. Empty is a better default than any URL: it means same-origin,
+which is correct for the single-endpoint deployment and cannot leak by accident.
+
+**CKEditor could not simply be deleted.** It is used by Employees → Edit
+employee among other pages, so removing the tag would have broken real
+functionality. The npm package is 4.22.1, the same version the CDN served, so
+serving it from `assets/ckeditor/` is like for like. It is copied from
+`node_modules` by an assets glob at build time rather than committed, keeping
+17 MB of vendored editor out of the repo.
+
+**The local script must not be `async`.** The Angular wrapper fetches a CDN copy
+whenever `window.CKEDITOR` is missing, so an async load races the first editor
+component and can reintroduce the very request being removed. Blocking on a
+680 KB same-origin file is the cheaper trade.
+
 ### The artwork
 
 The mark is the Young Globes **"Y."** — a white monogram on a full-bleed black
