@@ -147,7 +147,8 @@ export class GauzyLogoComponent implements AfterViewInit, OnInit, OnDestroy {
 	 * @returns true if isSVG is true and the theme is dark; otherwise, false.
 	 */
 	isWhiteSvg(): boolean {
-		return this.isSVG && this.isDarkTheme();
+		// Called, not referenced — a bare `this.isSVG` is always truthy.
+		return this.isSVG() && this.isDarkTheme();
 	}
 
 	/**

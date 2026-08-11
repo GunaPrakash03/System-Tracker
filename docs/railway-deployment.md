@@ -213,6 +213,22 @@ first (§8) and it will not arise.
 
 **Health check path:** `/`.
 
+### Uploads must be proxied too, or every screenshot breaks
+
+Upstream's `nginx.compose.conf` proxies only `/api/`. That is enough when the
+dashboard and API sit on separate origins, because the browser addresses the API
+directly. Behind a single origin it is not: screenshots and uploads are served by
+the API from `assetPublicPath` under `/public/`, and without a matching block the
+`location /` rule swallows those requests and `try_files` answers with
+`index.html` and a **200**.
+
+The failure is quiet and misleading. Every screenshot renders as a broken image
+while the status code says success; only the response's `Content-Type: text/html`
+on a `.png` request gives it away. The vendored
+`gauzy/.deploy/webapp/nginx.compose.conf` now carries the `/public/` block, so
+an image built from this tree has the fix — but if you ever build from a fresh
+upstream checkout, add it back.
+
 ## 7. Repoint the trackers
 
 Each workstation's `tracker/config.json`, or the `GAUZY_URL` environment variable,

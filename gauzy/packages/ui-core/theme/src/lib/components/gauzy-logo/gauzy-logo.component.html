@@ -23,7 +23,12 @@
 	<div>
 		<!-- Standalone platform logo (auth screens, onboarding). -->
 		<div class="logo" [class.white-svg]="isWhiteSvg()" (click)="navigateHome()">
-			@if (isSVG) {
+			<!-- isSVG() must be CALLED. Bare `isSVG` is a function reference and so
+			     always truthy, which forced the <object type="image/svg+xml">
+			     branch for every logo. That was invisible while the logo was an
+			     .svg; point it at a .png and the browser renders the file inside an
+			     SVG object and shows a cropped slab of it. -->
+			@if (isSVG()) {
 				<object [data]="logoUrl" type="image/svg+xml">
 					<img src="assets/images/logos/logo_young_globes.png" />
 				</object>
