@@ -283,11 +283,37 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 			}
 			this.bars = bars;
 
-			// Unmonitored is measured across the working span — first tracked hour
-			// to last — not across 24 hours. A whole day would put 15 hours of
-			// "unmonitored" against a normal shift and drown every other figure;
-			// the useful number is the gaps *within* the day someone worked.
-			const span = firstHour < 0 ? 0 : (lastHour - firstHour + 1) * 3600;
+			// Unmonitored is measured across the working span — not across 24
+			// hours. A whole day would put 15 hours of "unmonitored" against a
+			// normal shift and drown every other figure; the useful number is the
+			// gaps *within* the day someone worked.
+			//
+			// The span has to be the REAL one. Hour buckets round it up at both
+			// ends, and inside a single hour that is ruinous: a morning that
+			// started at 10:22 and is 25 minutes old sits entirely in hour 10, so
+			// the span came out as a full 3600s and the page reported 40 minutes
+			// unmonitored — 20 of them before tracking began and 12 that had not
+			// happened yet. It was counting the future.
+			//
+			// So use the minute-accurate wall clock the tracker already publishes:
+			// start at the reconciled start mark, end at the last segment's end,
+			// and never run past now on the day in progress.
+			const startedAtMark = this.reconcileStart(marks.started_at, firstHour);
+			const startSecs = this.hhmmToSeconds(startedAtMark);
+			const lastSegmentEnd = segments.reduce((latest: number | null, seg: any) => {
+				const e = this.hhmmToSeconds(seg?.e);
+				return e === null || (latest !== null && e < latest) ? latest : e;
+			}, null as number | null);
+			// Buckets remain the fallback for days recorded before segments
+			// shipped. They are only hour-accurate, which is why they are second
+			// choice rather than first.
+			const bucketEnd = lastHour >= 0 ? (lastHour + 1) * 3600 : 0;
+			let endSecs = lastSegmentEnd ?? bucketEnd;
+			if (this.date === this.todayKey()) {
+				const now = new Date();
+				endSecs = Math.min(endSecs, now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds());
+			}
+			const span = firstHour < 0 || startSecs === null ? 0 : Math.max(0, endSecs - startSecs);
 			this.summary = bars.length
 				? {
 						productive: day.productive,
@@ -304,7 +330,7 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 						// began at 09:00 as arriving at 14:34. When the buckets show
 						// tracking before the mark, the first tracked hour is the
 						// truthful answer even though it is only hour-accurate.
-						startedAt: this.reconcileStart(marks.started_at, firstHour),
+						startedAt: startedAtMark,
 						lastIdleStartedAt: marks.last_idle_started_at || null,
 						lastActiveResumedAt: marks.last_active_resumed_at || null
 				  }
@@ -519,6 +545,28 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 	 * @param firstHour - first hour of the day holding tracked time, or -1
 	 * @returns the time to show, or null when the day has nothing at all
 	 */
+	/**
+	 * "HH:MM" as published by the tracker → seconds since local midnight.
+	 * Returns null for an absent or unparseable mark, which callers treat as
+	 * "no minute-accurate answer available" rather than as midnight.
+	 */
+	private hhmmToSeconds(mark: string | null | undefined): number | null {
+		if (!mark) return null;
+		const [h, m] = String(mark).split(':').map(Number);
+		return Number.isFinite(h) && Number.isFinite(m) ? h * 3600 + m * 60 : null;
+	}
+
+	/**
+	 * Today as "YYYY-MM-DD" in LOCAL time, matching the shape of `this.date`.
+	 * Deliberately not toISOString(), which is UTC and would roll the date over
+	 * five and a half hours early in IST.
+	 */
+	private todayKey(): string {
+		const d = new Date();
+		const p = (n: number) => String(n).padStart(2, '0');
+		return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+	}
+
 	private reconcileStart(mark: string | undefined, firstHour: number): string | null {
 		const fallback = firstHour >= 0 ? `${String(firstHour).padStart(2, '0')}:00` : null;
 		if (!mark) return fallback;
