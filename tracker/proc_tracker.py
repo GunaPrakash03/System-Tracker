@@ -1551,6 +1551,24 @@ def main():
     # timed. None until the first interval: a restart must not invent an idle
     # transition that never happened.
     prev_active = None
+    # Anchor for a drift-free schedule. Each cycle is credited a flat `interval`
+    # of tracked time, so each cycle must actually OCCUPY an interval of wall
+    # clock — no more. Timing the sampling window on its own does not achieve
+    # that: the timer re-assertion, the settings fetch, the screenshot (up to
+    # screenshot_timeout_seconds) and the POST all sit outside it, so a cycle ran
+    # interval + overhead while crediting interval. The shortfall was small per
+    # cycle and invisible in any single slot, but it accumulated all day and
+    # surfaced on the dashboard as "unmonitored" time for someone who had never
+    # stopped working.
+    #
+    # Deadlines are computed from this anchor rather than from "now" so the
+    # error cannot compound: a slow cycle borrows from the next one instead of
+    # pushing every subsequent cycle later.
+    #
+    # monotonic, not wall clock: it does not advance across a suspend, so time
+    # the machine spent asleep is never credited as worked. That absence SHOULD
+    # read as unmonitored — it is the honest answer.
+    schedule_anchor = time.monotonic()
     try:
         while True:
             started = now_ts(cfg)
@@ -1570,7 +1588,20 @@ def main():
             active_seconds = 0    # seconds this slot was active (input or audio)
             audio_seconds = 0     # seconds audio counted TOWARDS active
             media_seconds = 0     # seconds media played, counted active or not
-            deadline = time.monotonic() + interval
+            # End of THIS cycle on the fixed schedule, so the work already done
+            # above is absorbed by the sampling window rather than added to it.
+            deadline = schedule_anchor + cycle * interval
+            # If the overhead alone outran a whole interval — a long screenshot,
+            # a slow API, a suspend — the schedule cannot be honoured without
+            # sampling for a negative time. Re-anchor rather than sprint through
+            # cycles trying to catch up, which would credit interval each time
+            # for slots that never happened.
+            behind = time.monotonic() - deadline
+            if behind > 0:
+                if behind > interval:
+                    log(cfg, f"note: {int(behind)}s behind schedule, re-anchoring")
+                    schedule_anchor = time.monotonic() - cycle * interval
+                deadline = time.monotonic()
             while time.monotonic() < deadline:
                 time.sleep(fsample)
                 # activity sample: active if recent input OR audio playing
