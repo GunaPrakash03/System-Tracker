@@ -1,0 +1,6 @@
+// Ghost button so the dots read as an affordance rather than a third action
+// competing with the toggles already in the row.
+.row-actions {
+	padding: 0.25rem;
+	min-width: 0;
+}

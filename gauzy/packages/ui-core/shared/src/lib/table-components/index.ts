@@ -44,3 +44,4 @@ export * from './editors/non-editable-number-editor.component';
 
 // Export the table components main module
 export * from './table-components.module';
+export * from './employee-row-actions/employee-row-actions.component';

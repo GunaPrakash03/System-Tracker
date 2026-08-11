@@ -1,7 +1,16 @@
 import { CommonModule } from '@angular/common';
 import { NgModule } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NbIconModule, NbTooltipModule, NbBadgeModule, NbToggleModule, NbButtonModule } from '@nebular/theme';
+import {
+	NbIconModule,
+	NbTooltipModule,
+	NbBadgeModule,
+	NbToggleModule,
+	NbButtonModule,
+	// The 3-dot row menu binds [nbContextMenu]; without this module the
+	// directive silently does not exist and the button renders inert.
+	NbContextMenuModule
+} from '@nebular/theme';
 import { TranslateModule } from '@ngx-translate/core';
 import { ComponentsModule } from '../components/components.module';
 import { PipesModule } from '../pipes/pipes.module';
@@ -11,6 +20,7 @@ import {
 	NumberEditorComponent
 } from './editors';
 import { AllowScreenshotCaptureComponent } from './allow-screenshot-capture/allow-screenshot-capture.component';
+import { EmployeeRowActionsComponent } from './employee-row-actions/employee-row-actions.component';
 import { AssignedToComponent } from './assigned-to/assigned-to.component';
 import { ClickableLinkComponent } from './clickable-link/clickable-link.component';
 import { CompanyLogoComponent } from './company-logo/company-logo.component';
@@ -59,6 +69,7 @@ import { TaskBadgeViewComponentModule } from '../tasks/task-badge-view/task-badg
 		FormsModule,
 		NbBadgeModule,
 		NbButtonModule,
+		NbContextMenuModule,
 		NbIconModule,
 		NbToggleModule,
 		NbTooltipModule,
@@ -70,6 +81,7 @@ import { TaskBadgeViewComponentModule } from '../tasks/task-badge-view/task-badg
 	],
 	declarations: [
 		AllowScreenshotCaptureComponent,
+		EmployeeRowActionsComponent,
 		AssignedToComponent,
 		ClickableLinkComponent,
 		CompanyLogoComponent,
@@ -115,6 +127,7 @@ import { TaskBadgeViewComponentModule } from '../tasks/task-badge-view/task-badg
 	],
 	exports: [
 		AllowScreenshotCaptureComponent,
+		EmployeeRowActionsComponent,
 		AssignedToComponent,
 		ClickableLinkComponent,
 		CompanyLogoComponent,

@@ -359,7 +359,8 @@
 		"LOADING": "Loading...",
 		"LOADING_MORE": "Loading more...",
 		"EMPLOYEE_ID": "Employee ID",
-		"DEPARTMENT": "Department"
+		"DEPARTMENT": "Department",
+		"EMPLOYEE_NAME": "Employee Name"
 	},
 	"FORM": {
 		"USERNAME": "Username",

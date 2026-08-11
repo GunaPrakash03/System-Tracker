@@ -33,6 +33,7 @@ import {
 import { API_PREFIX, ComponentEnum, distinctUntilChange, getEntityDisplayName } from '@gauzy/ui-core/common';
 import {
 	AllowScreenshotCaptureComponent,
+	EmployeeRowActionsComponent,
 	CardGridComponent,
 	DateFormatPipe,
 	DeleteConfirmationComponent,
@@ -707,7 +708,7 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 				dataTableId: this.dataTableId,
 				columnId: 'fullName',
 				order: 1,
-				title: () => this.getTranslation('SM_TABLE.FULL_NAME'),
+				title: () => this.getTranslation('SM_TABLE.EMPLOYEE_NAME'),
 				type: 'custom',
 				class: 'align-row',
 				width: '20%',
@@ -823,6 +824,27 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 				renderComponent: EmployeeWorkStatusComponent,
 				componentInitFunction: (instance: EmployeeWorkStatusComponent, cell: Cell) => {
 					instance.rowData = cell.getRow().getData();
+				}
+			},
+			{
+				dataTableId: this.dataTableId,
+				columnId: 'actions',
+				order: 8,
+				title: () => '',
+				type: 'custom',
+				class: 'text-center',
+				width: '5%',
+				isFilterable: false,
+				isSortable: false,
+				renderComponent: EmployeeRowActionsComponent,
+				componentInitFunction: (instance: EmployeeRowActionsComponent, cell: Cell) => {
+					instance.rowData = cell.getRow().getData();
+					// Reuses the existing edit() and delete(). delete() already opens a
+					// confirmation and Gauzy soft-deletes — the list's "Show Deleted"
+					// toggle is what reveals the result — so no new retention behaviour
+					// is introduced here.
+					instance.edit.subscribe((employee: any) => this.edit(employee));
+					instance.delete.subscribe((employee: any) => this.delete(employee));
 				}
 			}
 		];
