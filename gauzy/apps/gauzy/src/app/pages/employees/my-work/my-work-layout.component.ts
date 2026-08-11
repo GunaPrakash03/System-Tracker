@@ -8,11 +8,12 @@ import { PageTabRegistryService, PageTabsetPageId, RouteUtil } from '@gauzy/ui-c
 /**
  * "My Work" — the page an employee lands on.
  *
- * The three reads an employee is allowed (productivity, apps & URLs, app usage)
- * are gathered here as tabs rather than sitting as three separate sidebar
- * entries. An employee has one place to go; an admin or manager reaching the
- * same page sees whichever employee the header selector is pointing at, with
- * the API deciding whether that selection is permitted.
+ * The reads are gathered here as tabs rather than sitting as separate sidebar
+ * entries: Productivity for the employee themselves, and App categories, Apps &
+ * URLs and App usage for admins and managers. An employee has one place to go;
+ * an admin or manager reaching the same page sees whichever employee the header
+ * selector is pointing at, with the API deciding whether that selection is
+ * permitted.
  */
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -48,11 +49,11 @@ export class MyWorkLayoutComponent implements OnInit, AfterViewInit {
 	}
 
 	/**
-	 * Registers the three tabs of the page.
+	 * Registers the page's tabs.
 	 *
-	 * TIME_TRACKER is the only permission required: every role that may see this
-	 * page at all holds it, and which *employee's* data comes back is settled by
-	 * the API, not by hiding a tab.
+	 * TIME_TRACKER gates Productivity: every role that may see this page at all
+	 * holds it, and which *employee's* data comes back is settled by the API,
+	 * not by hiding a tab. The rest need ORG_EMPLOYEES_VIEW.
 	 *
 	 * @returns {void}
 	 */
@@ -70,12 +71,30 @@ export class MyWorkLayoutComponent implements OnInit, AfterViewInit {
 			permissions: [PermissionsEnum.TIME_TRACKER]
 		});
 
-		// Apps & URLs and App usage are for admins and managers, not for the
-		// employee themselves — an employee's self-service view is Productivity
-		// alone. ORG_EMPLOYEES_VIEW is the separator: employees do not hold it,
-		// managers and admins do. Hiding the tab is only half of it; the routes
-		// carry the same guard (see my-work.module.ts) so a typed URL is refused
-		// rather than rendering.
+		// The remaining tabs are for admins and managers, not for the employee
+		// themselves — an employee's self-service view is Productivity alone.
+		// ORG_EMPLOYEES_VIEW is the separator: employees do not hold it, managers
+		// and admins do. Hiding the tab is only half of it; the routes carry the
+		// same guard (see my-work.module.ts) so a typed URL is refused rather
+		// than rendering.
+		//
+		// Registering the tab is NOT optional and is easy to forget: a route
+		// added to my-work.module.ts without a matching entry here is reachable
+		// by URL but invisible, which reads as "the feature did not ship".
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'app-categories',
+			tabsetType: 'route',
+			tabTitle: () => 'App categories',
+			responsive: true,
+			route: '/pages/employees/my-work/app-categories',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			// Next to Productivity, whose numbers it explains.
+			order: 2,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+
 		this._pageTabRegistryService.registerPageTab({
 			tabsetId: this.tabsetId,
 			tabId: 'apps-urls',
@@ -85,7 +104,7 @@ export class MyWorkLayoutComponent implements OnInit, AfterViewInit {
 			route: '/pages/employees/my-work/apps-urls',
 			queryParamsHandling: 'merge' as QueryParamsHandling,
 			activeLinkOptions: { exact: false },
-			order: 2,
+			order: 3,
 			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
 		});
 
@@ -98,7 +117,7 @@ export class MyWorkLayoutComponent implements OnInit, AfterViewInit {
 			route: '/pages/employees/my-work/app-usage',
 			queryParamsHandling: 'merge' as QueryParamsHandling,
 			activeLinkOptions: { exact: false },
-			order: 3,
+			order: 4,
 			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
 		});
 	}
