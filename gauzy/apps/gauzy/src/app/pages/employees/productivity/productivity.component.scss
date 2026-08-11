@@ -1,0 +1,175 @@
+// Chart palette. Both modes were validated with the dataviz palette checker
+// against the surfaces they actually render on (#ffffff light, #222b45 dark):
+// lightness band, chroma floor, CVD separation, normal-vision floor and
+// contrast vs surface all pass. Dark is its own set of steps, not a flip of
+// light — an automatic inversion fails the lightness band.
+.productivity {
+	--productive: #0f8f5f;
+	--neutral: #2a78d6;
+	--unproductive: #c62f2f;
+	--idle: #7a5ea8;
+	// Deliberately a low-chroma grey. The other four are categories; this one is
+	// the ABSENCE of data, and grey is the honest convention for "nothing here".
+	// It is excluded from the categorical palette checks for that reason.
+	--untracked: #c9c9c4;
+	--grid: rgba(0, 0, 0, 0.12);
+	--ink-muted: rgba(0, 0, 0, 0.55);
+
+
+	.chart-legend {
+		display: flex;
+		gap: 1.25rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+		font-size: 0.85rem;
+		// Labels stay in ink, never the series colour; the swatch carries identity.
+		color: var(--ink-muted);
+
+	}
+
+	// Swatches are no longer only a legend concern — the summary table carries
+	// one per row — so they live at card level rather than inside .chart-legend.
+	.sw {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border-radius: 2px;
+		margin-right: 0.4rem;
+		vertical-align: middle;
+	}
+	.sw.productive { background: var(--productive); }
+	.sw.neutral { background: var(--neutral); }
+	.sw.unproductive { background: var(--unproductive); }
+	.sw.idle { background: var(--idle); }
+	.sw.untracked { background: var(--untracked); }
+
+	// The three wall-clock marks, across the top of the card.
+	.marks {
+		display: flex;
+		gap: 2.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 1.25rem;
+
+		.mark {
+			display: flex;
+			flex-direction: column;
+		}
+		.mark-label {
+			font-size: 0.8rem;
+			color: var(--ink-muted);
+		}
+		.mark-value {
+			font-size: 1.35rem;
+			// Tabular figures so the three times align on their colons rather
+			// than jittering as the digits change.
+			font-variant-numeric: tabular-nums;
+		}
+	}
+
+	// One stacked strip for the day, in place of the 24 hourly bars.
+	.strip {
+		display: flex;
+		width: 100%;
+		height: 28px;
+		border-radius: 4px;
+		overflow: hidden;
+		// Shows through wherever the segments do not reach, which is the honest
+		// reading: whatever is left is time nobody observed.
+		background: var(--untracked);
+
+		.seg {
+			height: 100%;
+			// Segments meet edge to edge; a hairline in the surface colour keeps
+			// adjacent fills legible without outlining each one.
+			box-shadow: inset -1px 0 0 var(--card-background-color, #fff);
+		}
+		.seg.productive { background: var(--productive); }
+		.seg.neutral { background: var(--neutral); }
+		.seg.unproductive { background: var(--unproductive); }
+		.seg.idle { background: var(--idle); }
+	}
+
+	// Wide days scroll inside the chart rather than pushing the page sideways.
+
+
+	.section-title {
+		font-size: 0.95rem;
+		color: var(--ink-muted);
+		margin-bottom: 0.5rem;
+	}
+
+	// The day as a ribbon along a real time axis.
+	.timeline {
+		margin-top: 0.5rem;
+
+		.track {
+			position: relative;
+			height: 44px;
+			border-radius: 4px;
+			// Shows through wherever no block is drawn — the tracker was not
+			// running. Absence of data is grey by convention, never a category
+			// colour, so a gap can never be misread as idle.
+			background: var(--untracked);
+			overflow: hidden;
+		}
+
+		.block {
+			position: absolute;
+			top: 0;
+			height: 100%;
+			// A hairline in the surface colour separates touching blocks without
+			// outlining each one, which at minute widths would be all outline.
+			box-shadow: inset -1px 0 0 var(--card-background-color, #fff);
+		}
+		.block.productive { background: var(--productive); }
+		.block.neutral { background: var(--neutral); }
+		.block.unproductive { background: var(--unproductive); }
+		.block.idle { background: var(--idle); }
+
+		.axis {
+			position: relative;
+			height: 1.4rem;
+			margin-top: 0.25rem;
+			border-top: 1px solid var(--grid);
+		}
+		.tick {
+			position: absolute;
+			// Centres the label on its tick rather than starting at it, so 09:00
+			// sits over the 09:00 boundary.
+			transform: translateX(-50%);
+			font-size: 0.75rem;
+			font-variant-numeric: tabular-nums;
+			color: var(--ink-muted);
+			white-space: nowrap;
+		}
+		.tick-mark {
+			display: block;
+			width: 1px;
+			height: 4px;
+			margin: 0 auto 1px;
+			background: var(--grid);
+		}
+		.axis-title {
+			text-align: center;
+			font-size: 0.8rem;
+			color: var(--ink-muted);
+			margin-top: 0.25rem;
+		}
+	}
+
+	.totals td {
+		border-top: 2px solid var(--grid);
+	}
+}
+
+// Dark mode: separately chosen steps, validated against #222b45.
+:host-context([data-theme='dark']) .tracker-chart,
+:host-context(.nb-theme-dark) .productivity {
+	--productive: #1da572;
+	--neutral: #4c94e8;
+	--unproductive: #e05a5a;
+	--idle: #9079cc;
+	--untracked: #4a4a52;
+	--grid: rgba(255, 255, 255, 0.16);
+	--ink-muted: rgba(255, 255, 255, 0.7);
+}

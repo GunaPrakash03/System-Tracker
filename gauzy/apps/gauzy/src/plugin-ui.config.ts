@@ -1,0 +1,96 @@
+import { LanguagesEnum, WeekDaysEnum } from '@gauzy/contracts';
+import { JobEmployeePlugin } from '@gauzy/plugin-job-employee-ui';
+import { JobMatchingPlugin } from '@gauzy/plugin-job-matching-ui';
+import { JobProposalPlugin, JobProposalTemplatePlugin } from '@gauzy/plugin-job-proposal-ui';
+import { JobSearchPlugin } from '@gauzy/plugin-job-search-ui';
+import { JobsPlugin } from '@gauzy/plugin-jobs-ui';
+import { IntegrationUpworkPlugin } from '@gauzy/plugin-integration-upwork-ui';
+import { IntegrationPlanePlugin } from '@gauzy/plugin-integration-plane-ui';
+import { DashboardTimeTrackReactUiPlugin } from '@gauzy/plugin-dashboard-time-track-react-ui';
+import { AiChatReactUiPlugin } from '@gauzy/plugin-ai-chat-react-ui';
+import { DashboardTimeTrackAngularUiPlugin } from '@gauzy/plugin-dashboard-time-track-angular-ui';
+import { DayOfWeek, PluginUiConfig } from '@gauzy/plugin-ui';
+import { dayOfWeekAsString } from '@gauzy/ui-core/shared';
+import { environment } from '@gauzy/ui-config';
+
+/**
+ * Application UI configuration.
+ *
+ * Single source of truth for supported languages / locales
+ * and the list of active UI plugins.
+ *
+ * ┌──────────────────────────────────────────────────────────┐
+ * │  Plugins can be flat or hierarchical. A parent plugin    │
+ * │  (e.g. JobsPlugin) can have child plugins via `plugins`.  │
+ * │  Use JobsPlugin.init({ plugins: [...] }) to customize.    │
+ * └──────────────────────────────────────────────────────────┘
+ */
+export const uiPluginConfig: PluginUiConfig = {
+	// ── Internationalization ───────────────────────────────
+	defaultLanguage: LanguagesEnum.ENGLISH,
+	defaultLocale: 'en-US',
+	fallbackLocale: LanguagesEnum.ENGLISH,
+
+	availableLanguages: [
+		LanguagesEnum.ENGLISH,
+		LanguagesEnum.FRENCH,
+		LanguagesEnum.SPANISH,
+		LanguagesEnum.GERMAN,
+		LanguagesEnum.PORTUGUESE,
+		LanguagesEnum.ITALIAN,
+		LanguagesEnum.DUTCH,
+		LanguagesEnum.POLISH,
+		LanguagesEnum.RUSSIAN,
+		LanguagesEnum.CHINESE,
+		LanguagesEnum.ARABIC,
+		LanguagesEnum.BULGARIAN,
+		LanguagesEnum.HEBREW
+	],
+
+	availableLocales: [
+		'en-US',
+		'fr-FR',
+		'es-ES',
+		'de-DE',
+		'pt-PT',
+		'it-IT',
+		'nl-NL',
+		'pl-PL',
+		'ru-RU',
+		'zh-CN',
+		'ar-SA',
+		'bg-BG',
+		'he-IL'
+	],
+
+	// Day of week the week starts on (0 = Sunday, 1 = Monday, …)
+	startWeekOn: dayOfWeekAsString(WeekDaysEnum.MONDAY) as DayOfWeek,
+
+	// ── Plugins ────────────────────────────────────────────
+	plugins: [
+		// Angular Time Tracking Dashboard Plugin
+		DashboardTimeTrackAngularUiPlugin,
+
+		// Integration Plugins
+		IntegrationUpworkPlugin,
+		IntegrationPlanePlugin,
+
+		// Job Plugins
+		JobsPlugin.init({
+			plugins: [
+				JobProposalPlugin,
+				JobEmployeePlugin,
+				JobSearchPlugin,
+				JobMatchingPlugin,
+				JobProposalTemplatePlugin
+			]
+		}),
+
+		// React UI Plugin (demo only)
+		...(environment.DEMO ? [DashboardTimeTrackReactUiPlugin] : []),
+
+		// AI Chat — enabled in all builds; visibility is gated at runtime by the
+		// AI_CHAT_ACCESS permission and the backend configuration (/api/ai-chat/config).
+		AiChatReactUiPlugin
+	]
+};

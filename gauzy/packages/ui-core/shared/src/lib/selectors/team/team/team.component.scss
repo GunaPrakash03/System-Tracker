@@ -1,0 +1,30 @@
+@use 'var' as *;
+
+:host {
+	min-width: 200px;
+	display: block;
+
+	.multiple-select {
+		width: 100%;
+	}
+
+	ng-select {
+		// The label template is a flex row so the logo and the name share one
+		// baseline. No `height: 100%` — the parent is auto-height, so it resolved
+		// to `auto` anyway and only made the box look intentional; the trigger
+		// centres its own content (see `ng-select-overrides`).
+		.selector-template {
+			display: flex;
+			align-items: center;
+		}
+
+		img {
+			margin-right: 5px;
+			border-radius: nb-theme(button-rectangle-border-radius);
+		}
+	}
+}
+
+img {
+	object-fit: cover;
+}

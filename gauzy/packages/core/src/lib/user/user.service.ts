@@ -1,0 +1,765 @@
+// Modified code from https://github.com/xmlking/ngx-starter-kit.
+// MIT License, see https://github.com/xmlking/ngx-starter-kit/blob/develop/LICENSE
+// Copyright (c) 2018 Sumanth Chinthagunta
+
+import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+	InsertResult,
+	SelectQueryBuilder,
+	Brackets,
+	WhereExpressionBuilder,
+	FindOptionsWhere,
+	In,
+	UpdateResult,
+	DeleteResult,
+	MoreThan
+} from 'typeorm';
+import { JwtPayload } from 'jsonwebtoken';
+import * as moment from 'moment';
+import {
+	ComponentLayoutStyleEnum,
+	ID,
+	IEmployee,
+	IFindMeUser,
+	IUser,
+	LanguagesEnum,
+	PermissionsEnum,
+	RolesEnum,
+	UserStats
+} from '@gauzy/contracts';
+import { isNotEmpty } from '@gauzy/utils';
+import { prepareSQLQuery as p } from './../database/database.helper';
+import { TenantAwareCrudService } from './../core/crud';
+import { RequestContext } from './../core/context';
+import { freshTimestamp, MultiORMEnum, parseFindOptionsRelations } from './../core/utils';
+import { EmployeeService } from '../employee/employee.service';
+import { TaskService } from '../tasks/task.service';
+import { MikroOrmUserRepository } from './repository/mikro-orm-user.repository';
+import { TypeOrmUserRepository } from './repository/type-orm-user.repository';
+import { User } from './user.entity';
+import { validateUserDeletion } from './default-protected-users';
+import { PasswordHashService } from '../password-hash/password-hash.service';
+
+@Injectable()
+export class UserService extends TenantAwareCrudService<User> {
+	constructor(
+		readonly typeOrmUserRepository: TypeOrmUserRepository,
+		readonly mikroOrmUserRepository: MikroOrmUserRepository,
+		private readonly _employeeService: EmployeeService,
+		private readonly _taskService: TaskService,
+		private readonly _passwordHashService: PasswordHashService
+	) {
+		super(typeOrmUserRepository, mikroOrmUserRepository);
+	}
+
+	/**
+	 * Returns the total number of users without any filters/options.
+	 * Uses the underlying ORM repositories directly.
+	 */
+	public async countAll(): Promise<number> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return await this.mikroOrmUserRepository.count();
+			case MultiORMEnum.TypeORM:
+			default:
+				return await this.typeOrmUserRepository.count();
+		}
+	}
+
+	/**
+	 * Get the count of users and the number of users who logged in during the last 30 days.
+	 *
+	 * @returns {Promise<UserStats>} - A promise that resolves to an object containing user statistics.
+	 */
+	async getUserStats(): Promise<UserStats> {
+		try {
+			const [count, lastMonthActiveUsers] = await Promise.all([
+				this.count(), // Get the total number of users
+				this.getMonthlyActiveUsers() // Get the number of users active in the last 30 days
+			]);
+
+			return {
+				count, // The total number of users
+				lastMonthActiveUsers // The number of active users in the last month
+			};
+		} catch (error) {
+			console.error('Error fetching user stats:', error);
+			throw new Error(`Failed to retrieve user statistics: ${error.message}`);
+		}
+	}
+
+	/**
+	 * Get the count of users who logged in during the last 30 days.
+	 *
+	 * @returns {Promise<number>} - The count of active users
+	 */
+	async getMonthlyActiveUsers(): Promise<number> {
+		try {
+			// Calculate the date 30 days ago
+			const lastLoginAt = moment().subtract(30, 'days').toDate();
+
+			// Use the count method to fetch the count of users with lastLoginAt within the last 30 days
+			return await super.count({
+				where: { lastLoginAt: MoreThan(lastLoginAt) }
+			});
+		} catch (error) {
+			// Handle error, log it, or throw a custom exception
+			console.error('Error fetching monthly active users:', error);
+			throw new Error('Unable to retrieve monthly active users count.');
+		}
+	}
+
+	/**
+	 * Fetches the logged-in user's details along with associated employee details if requested.
+	 *
+	 * @param options Options for the findMeUser method.
+	 * @returns A promise resolving to the user details.
+	 */
+	public async findMeUser(options: IFindMeUser): Promise<IUser> {
+		let employee: IEmployee;
+
+		// Check if there are relations to include and remove 'employee' from them if present.
+		if (options.relations && options.relations.length > 0) {
+			const index = options.relations.indexOf('employee');
+			if (index > -1) {
+				options.relations.splice(index, 1); // Removing 'employee' to handle it separately
+			}
+		}
+
+		// Fetch the user along with requested relations (excluding employee).
+		const user = await this.findMe(options.relations);
+		console.log('findMe found User with Id:', user.id);
+
+		// Fetch employee details if 'includeEmployee' is true
+		if (options.includeEmployee) {
+			const relations = options.includeOrganization ? { organization: true } : [];
+			employee = await this._employeeService.findOneByUserId(user.id, undefined, {
+				relations: parseFindOptionsRelations(relations)
+			});
+		}
+
+		// Return user data combined with employee data, if it exists.
+		return new User({
+			...user,
+			...(employee && { employee }) // Conditionally add employee info to the response
+		});
+	}
+
+	/**
+	 * Retrieves details of the currently logged-in user, including specified relations.
+	 *
+	 * @param relations An array of strings indicating which relations of the user to include.
+	 * @returns A Promise resolving to the IUser object with the desired relations.
+	 */
+	private async findMe(relations: string[] = []): Promise<IUser> {
+		try {
+			// Get the current user's ID from the RequestContext
+			const userId = RequestContext.currentUserId();
+			// Fetch and return the user's details based on the provided relations
+			return await this.findOneByIdString(userId, { relations });
+		} catch (error) {
+			// Log the error for debugging purposes
+			console.error('Error in findMe:', error);
+		}
+	}
+
+	/**
+	 * Marked email as verified for user
+	 *
+	 * @param id
+	 * @returns
+	 */
+	public async markEmailAsVerified(id: ID) {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return await this.mikroOrmRepository.nativeUpdate(
+					{ id },
+					{
+						emailVerifiedAt: freshTimestamp(),
+						emailToken: null,
+						code: null,
+						codeExpireAt: null
+					}
+				);
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.update(
+					{ id },
+					{
+						emailVerifiedAt: freshTimestamp(),
+						emailToken: null,
+						code: null,
+						codeExpireAt: null
+					}
+				);
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * GET user by email in the same tenant
+	 *
+	 * @param email
+	 * @returns
+	 */
+	async getUserByEmail(email: string): Promise<IUser | null> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return await this.mikroOrmRepository.findOne({ email } as any);
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.findOneBy({ email });
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * GET user by email using social logins
+	 *
+	 * @param email
+	 * @returns
+	 */
+	async getOAuthLoginEmail(email: string): Promise<IUser> {
+		try {
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM:
+					return await this.mikroOrmRepository.findOneOrFail({ email } as any);
+				case MultiORMEnum.TypeORM:
+					return await this.typeOrmRepository.findOneByOrFail({ email });
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+		} catch (error) {
+			throw new NotFoundException(`The requested record was not found`);
+		}
+	}
+
+	/**
+	 * Checks if a user with the given email exists.
+	 * @param {string} email - The email of the user to check.
+	 * @returns {Promise<boolean>} - A promise that resolves to true if the user exists, otherwise false.
+	 */
+	async checkIfExistsEmail(email: string): Promise<boolean> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return !!(await this.mikroOrmRepository.findOne({ email } as any));
+			case MultiORMEnum.TypeORM:
+				return !!(await this.typeOrmRepository.findOneBy({ email }));
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Checks if a user with the given ID exists.
+	 * @param {string} id - The ID of the user to check.
+	 * @returns {Promise<boolean>} - A promise that resolves to true if the user exists, otherwise false.
+	 */
+	async checkIfExists(id: string): Promise<boolean> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return !!(await this.mikroOrmRepository.findOne({ id } as any));
+			case MultiORMEnum.TypeORM:
+				return !!(await this.typeOrmRepository.findOneBy({ id }));
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Checks if a user with the given third party ID exists.
+	 * @param {string} thirdPartyId - The third party ID of the user to check.
+	 * @returns {Promise<boolean>} - A promise that resolves to true if the user exists, otherwise false.
+	 */
+	async checkIfExistsThirdParty(thirdPartyId: string): Promise<boolean> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return !!(await this.mikroOrmRepository.findOne({ thirdPartyId } as any));
+			case MultiORMEnum.TypeORM:
+				return !!(await this.typeOrmRepository.findOneBy({ thirdPartyId }));
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Retrieves a user with the given ID if it exists.
+	 * @param {string} id - The ID of the user to retrieve.
+	 * @returns {Promise<User | undefined>} - A promise that resolves to the user if it exists, otherwise undefined.
+	 */
+	async getIfExists(id: string): Promise<User | undefined> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return await this.mikroOrmUserRepository.findOne({ id });
+
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.findOneBy({ id });
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Retrieves a user with the given third party ID if it exists.
+	 * @param {string} thirdPartyId - The third party ID of the user to retrieve.
+	 * @returns {Promise<User | undefined>} - A promise that resolves to the user if it exists, otherwise undefined.
+	 */
+	async getIfExistsThirdParty(thirdPartyId: string): Promise<User | undefined> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				return await this.mikroOrmUserRepository.findOne({ thirdPartyId });
+
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.findOneBy({ thirdPartyId });
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Creates a new user.
+	 * @param {User} user - The user object to create.
+	 * @returns {Promise<InsertResult>} - A promise that resolves to the insert result.
+	 */
+	async createOne(user: User): Promise<InsertResult> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM: {
+				const entity = this.mikroOrmRepository.create(user as any, { partial: true, managed: true });
+				await this.mikroOrmRepository.persistAndFlush(entity);
+				const result = new InsertResult();
+				result.identifiers = [{ id: entity.id }];
+				result.generatedMaps = [{ id: entity.id }];
+				result.raw = entity;
+				return result;
+			}
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.insert(user);
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Updates the password for a user.
+	 *
+	 * @param id - The ID of the user whose password is to be changed.
+	 * @param hash - The new hashed password to set for the user.
+	 * @returns A promise resolving to the updated user entity.
+	 * @throws ForbiddenException if the operation fails.
+	 */
+	async changePassword(id: ID, hash: string): Promise<UpdateResult | User> {
+		try {
+			// Update only the password hash for the user
+			return await this.update(id as string, { hash });
+		} catch (error) {
+			// Throw a ForbiddenException if any error occurs
+			throw new ForbiddenException('Failed to update the password.');
+		}
+	}
+
+	/**
+	 * Updates the profile of a user.
+	 * Ensures the user has the necessary permissions and applies restrictions to role updates.
+	 *
+	 * @param id - The ID of the user to update.
+	 * @param entity - The user entity with updated data.
+	 * @returns The updated user entity.
+	 * @throws ForbiddenException if the user lacks the required permissions or attempts unauthorized updates.
+	 */
+	async updateProfile(id: ID | number, entity: User): Promise<IUser> {
+		// Retrieve the current user's role ID from the RequestContext
+		const currentRoleId = RequestContext.currentRoleId();
+		const currentUserId = RequestContext.currentUserId();
+
+		// Ensure the user has the appropriate permissions
+		if (
+			RequestContext.hasPermission(PermissionsEnum.PROFILE_EDIT) &&
+			!RequestContext.hasPermission(PermissionsEnum.ORG_USERS_EDIT)
+		) {
+			// Users can only edit their own profile
+			if (currentUserId !== id) {
+				throw new ForbiddenException();
+			}
+		}
+
+		let user: IUser;
+
+		try {
+			// Fetch the user by ID if the ID is a string
+			if (typeof id == 'string') {
+				user = await this.findOneByIdString(id, { relations: { role: true } });
+			}
+
+			// Restrict updates to Super Admin role without appropriate permission
+			if (user.role.name === RolesEnum.SUPER_ADMIN) {
+				if (!RequestContext.hasPermission(PermissionsEnum.SUPER_ADMIN_EDIT)) {
+					throw new ForbiddenException();
+				}
+			}
+
+			// Restrict updates to Super Admin role without appropriate permission
+			if (user.role.name === RolesEnum.SUPER_ADMIN) {
+				if (!RequestContext.hasPermission(PermissionsEnum.SUPER_ADMIN_EDIT)) {
+					throw new ForbiddenException();
+				}
+			}
+
+			// Restrict users from updating their own role.
+			// Check BOTH the nested `role` object and the flat `roleId` field INDEPENDENTLY, otherwise a
+			// user could escalate their own privileges (e.g. to SUPER_ADMIN). `role?.id ?? roleId` is not
+			// enough: a crafted body could send an empty `role: { id: '' }` (non-nullish) to mask a
+			// privileged `roleId` and slip through. Reject if any provided role identifier differs from the
+			// caller's current role.
+			// Compare as strings: `id` is typed `ID | number`, so a numeric-equivalent value must not
+			// slip past the self-update check on a strict `===`.
+			if (String(currentUserId) === String(id)) {
+				const requestedRoleIds = [entity.role?.id, entity.roleId].filter((roleId) => isNotEmpty(roleId));
+				if (requestedRoleIds.some((roleId) => String(roleId) !== String(currentRoleId))) {
+					throw new ForbiddenException();
+				}
+			}
+
+			// Update password hash if provided
+			if (entity['hash']) {
+				entity['hash'] = await this.getPasswordHash(entity['hash']);
+			}
+
+			// Save the updated user entity
+			await this.save(entity);
+
+			// Return the updated user
+			return await this.findOneByWhereOptions({
+				id: id as string,
+				tenantId: RequestContext.currentTenantId()
+			});
+		} catch (error) {
+			throw new ForbiddenException();
+		}
+	}
+
+	async getAdminUsers(tenantId: string): Promise<User[]> {
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM: {
+				const items = await this.mikroOrmRepository.find(
+					{ tenantId, role: { name: { $in: [RolesEnum.SUPER_ADMIN, RolesEnum.ADMIN] } } } as any,
+					{ populate: ['role'] }
+				);
+				return items.map((entity) => this.serialize(entity)) as User[];
+			}
+			case MultiORMEnum.TypeORM:
+				// typeorm-v1: the legacy `join` find-option was removed. The nested `where` on the
+				// `role` relation already produces the join needed to filter by `role.name`, so the
+				// explicit `leftJoin` is redundant.
+				return await this.typeOrmRepository.find({
+					where: {
+						tenantId,
+						role: {
+							name: In([RolesEnum.SUPER_ADMIN, RolesEnum.ADMIN])
+						}
+					}
+				});
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Updates the preferred language of the current user.
+	 * @param {LanguagesEnum} preferredLanguage - The preferred language to update.
+	 * @returns {Promise<IUser | UpdateResult>} - A promise that resolves to the updated user or update result.
+	 */
+	async updatePreferredLanguage(preferredLanguage: LanguagesEnum): Promise<IUser | UpdateResult> {
+		try {
+			const userId = RequestContext.currentUserId();
+			return await this.update(userId, { preferredLanguage });
+		} catch (err) {
+			throw new NotFoundException(`The record was not found`, err);
+		}
+	}
+
+	/**
+	 * Updates the preferred component layout of the current user.
+	 * @param {ComponentLayoutStyleEnum} preferredComponentLayout - The preferred component layout to update.
+	 * @returns {Promise<IUser | UpdateResult>} - A promise that resolves to the updated user or update result.
+	 */
+	async updatePreferredComponentLayout(
+		preferredComponentLayout: ComponentLayoutStyleEnum
+	): Promise<IUser | UpdateResult> {
+		try {
+			const userId = RequestContext.currentUserId();
+			return await this.update(userId, { preferredComponentLayout });
+		} catch (err) {
+			throw new NotFoundException(`The record was not found`, err);
+		}
+	}
+
+	/**
+	 * Sets the current refresh token for the user.
+	 *
+	 * @param refreshToken - The refresh token to set.
+	 * @param userId - The ID of the user for whom to set the refresh token.
+	 * @returns The update result from the database operation.
+	 */
+	async setCurrentRefreshToken(refreshToken: string, userId: ID): Promise<UpdateResult> {
+		// Hash the refresh token using PasswordHashService if provided
+		const hashedToken = refreshToken ? await this._passwordHashService.hash(refreshToken) : refreshToken;
+
+		// Scope update by both userId and tenantId for multi-tenant safety.
+		// When tenantId is available, pass as FindOptionsWhere for scoped lookup.
+		// Otherwise pass userId as string so TenantAwareCrudService.update() uses
+		// findOneByIdString (which handles null RequestContext safely).
+		const tenantId = RequestContext.currentTenantId();
+		const criteria: string | FindOptionsWhere<User> = tenantId ? { id: userId, tenantId } : (userId as string);
+
+		// Update the user's refresh token
+		return (await this.update(criteria, { refreshToken: hashedToken })) as UpdateResult;
+	}
+
+	/**
+	 * Removes the refresh token from the database for the current user (logout device).
+	 *
+	 * @returns The update result from the database operation.
+	 */
+	async removeRefreshToken(): Promise<UpdateResult> {
+		const userId = RequestContext.currentUserId();
+		const tenantId = RequestContext.currentTenantId();
+		const criteria: FindOptionsWhere<User> = tenantId ? { id: userId, tenantId } : { id: userId };
+
+		return (await this.update(criteria, { refreshToken: null })) as UpdateResult;
+	}
+
+	/**
+	 * Updates the last login timestamp for a user.
+	 *
+	 * @param userId - The ID of the user for whom to set the last login time.
+	 * @returns The update result from the database operation.
+	 */
+	async setUserLastLoginTimestamp(userId: ID): Promise<UpdateResult> {
+		const lastLoginAt = new Date();
+		const id = userId;
+
+		// Update the last login time
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				const updatedRow = await this.mikroOrmRepository.nativeUpdate({ id }, { lastLoginAt });
+				return { affected: updatedRow } as UpdateResult;
+			case MultiORMEnum.TypeORM:
+				return await this.typeOrmRepository.update({ id }, { lastLoginAt });
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Persist the user's last organization and/or team preference.
+	 *
+	 * Only writes to the database when at least one value is truthy,
+	 * and only includes truthy fields in the update payload to avoid
+	 * accidentally clearing existing preferences.
+	 *
+	 * @param userId - The ID of the user to update.
+	 * @param organizationId - Optional organization ID to set as last organization.
+	 * @param teamId - Optional team ID to set as last team.
+	 */
+	async setLastOrganizationAndTeam(userId: ID, organizationId?: ID, teamId?: ID): Promise<void> {
+		console.log(
+			`[setLastOrganizationAndTeam] Called for user ${userId}, organizationId=${organizationId}, teamId=${teamId}`
+		);
+
+		// Build a partial payload containing only the truthy values
+		const partialEntity: Partial<{ lastOrganizationId: ID; lastTeamId: ID }> = {
+			...(organizationId && { lastOrganizationId: organizationId }),
+			...(teamId && { lastTeamId: teamId })
+		};
+
+		// Skip the DB call if there is nothing to update
+		if (Object.keys(partialEntity).length === 0) {
+			console.log('[setLastOrganizationAndTeam] Nothing to update, skipping DB call');
+			return;
+		}
+
+		try {
+			console.log(`[setLastOrganizationAndTeam] Updating user ${userId} with payload:`, partialEntity);
+
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM:
+					await this.mikroOrmRepository.nativeUpdate({ id: userId }, partialEntity);
+					break;
+				case MultiORMEnum.TypeORM:
+					await this.typeOrmRepository.update({ id: userId }, partialEntity);
+					break;
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+
+			console.log(`[setLastOrganizationAndTeam] Successfully updated preferences for user ${userId}`);
+		} catch (error) {
+			console.error(`[setLastOrganizationAndTeam] Error while updating preferences for user ${userId}:`, error);
+		}
+	}
+
+	/**
+	 * Invalidates the magic sign-in code for all users matching the given email and code.
+	 * Called after a successful workspace sign-in to prevent code reuse.
+	 *
+	 * @param email - The email address used for the sign-in.
+	 * @param code  - The magic code that was consumed.
+	 * @returns A promise that resolves when the invalidation write completes.
+	 */
+	async invalidateMagicCode(email: string, code: string): Promise<void> {
+		// Common criteria and payload shared by both ORM adapters
+		const where = { email, code };
+		const update = { code: null, codeExpireAt: null };
+
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				await this.mikroOrmUserRepository.nativeUpdate(where, update);
+				break;
+			case MultiORMEnum.TypeORM:
+				await this.typeOrmUserRepository.update(where, update);
+				break;
+			default:
+				throw new Error(`ORM type not implemented: ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Get user if refresh token matches
+	 *
+	 * @param refreshToken
+	 * @param payload
+	 * @returns
+	 */
+	async getUserIfRefreshTokenMatches(refreshToken: string, payload: JwtPayload) {
+		try {
+			const { id, email, tenantId, role } = payload;
+			let user: User;
+
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM: {
+					const where: any = { id, email };
+					if (isNotEmpty(tenantId)) where.tenantId = tenantId;
+					if (isNotEmpty(role)) where.role = { name: role };
+
+					user = (await this.mikroOrmRepository.findOneOrFail(where, {
+						populate: ['role'],
+						orderBy: { createdAt: 'DESC' as any }
+					})) as any;
+					break;
+				}
+				case MultiORMEnum.TypeORM: {
+					const query = this.typeOrmRepository.createQueryBuilder('user');
+					// typeorm-v1: the legacy `join` find-option was removed. Use an explicit query-builder
+					// left join so the raw `"role"."name" = :role` filter below can resolve the alias.
+					query.leftJoin('user.role', 'role');
+					query.where((qb: SelectQueryBuilder<User>) => {
+						qb.andWhere(
+							new Brackets((web: WhereExpressionBuilder) => {
+								web.andWhere(p(`"${qb.alias}"."id" = :id`), { id });
+								web.andWhere(p(`"${qb.alias}"."email" = :email`), { email });
+							})
+						);
+						qb.andWhere(
+							new Brackets((web: WhereExpressionBuilder) => {
+								if (isNotEmpty(tenantId)) {
+									web.andWhere(p(`"${qb.alias}"."tenantId" = :tenantId`), { tenantId });
+								}
+								if (isNotEmpty(role)) {
+									web.andWhere(p(`"role"."name" = :role`), { role });
+								}
+							})
+						);
+						qb.orderBy(p(`"${qb.alias}"."createdAt"`), 'DESC');
+					});
+					user = await query.getOneOrFail();
+					break;
+				}
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+
+			const isRefreshTokenMatching = await this._passwordHashService.verify(refreshToken, user.refreshToken);
+
+			if (isRefreshTokenMatching) {
+				return user;
+			} else {
+				throw new UnauthorizedException();
+			}
+		} catch (error) {
+			throw new UnauthorizedException();
+		}
+	}
+
+	/**
+	 * Generates a hash from the provided password using PasswordHashService.
+	 *
+	 * @param password The password to hash.
+	 * @returns A promise resolving to the hashed password.
+	 */
+	private async getPasswordHash(password: string): Promise<string> {
+		return this._passwordHashService.hash(password);
+	}
+
+	/**
+	 * To permanently delete your account from your Gauzy app:
+	 *
+	 * @param userId
+	 * @param options
+	 * @returns
+	 */
+	public async delete(userId: ID): Promise<DeleteResult> {
+		const currentUserId = RequestContext.currentUserId();
+
+		// If user don't have enough permission (CHANGE_SELECTED_EMPLOYEE).
+		if (!RequestContext.hasPermission(PermissionsEnum.CHANGE_SELECTED_EMPLOYEE)) {
+			// If user try to delete someone other user account, just denied the request.
+			if (currentUserId != userId) {
+				throw new ForbiddenException('You can not delete account for other users!');
+			}
+		}
+
+		// Get user first to check email for demo protection
+		const user = await this.findOneByIdString(userId);
+
+		if (!user) {
+			throw new ForbiddenException('User not found for this ID!');
+		}
+
+		// In demo environment, prevent deletion of default users
+		validateUserDeletion(user.email);
+
+		try {
+			// TODO: Unassign all the task assigned to this user
+			// Best to raise some event and handle it in the subscriber that remove tasks!
+			const employee = await this._employeeService.findOneByUserId(user.id);
+			if (employee) {
+				await this._taskService.unassignEmployeeFromTeamTasks(employee.id);
+			}
+
+			return await super.delete(userId);
+		} catch (error) {
+			throw new ForbiddenException(error?.message);
+		}
+	}
+
+	/**
+	 * Batch-load users by IDs. The eager `image` relation automatically triggers
+	 * ImageAssetSubscriber and UserSubscriber afterEntityLoad hooks,
+	 * resolving fresh presigned URLs for user profile images.
+	 *
+	 * @param userIds - Array of user IDs to load.
+	 * @returns A Map of user ID to User entity (with fresh imageUrl).
+	 */
+	async findUsersByIds(userIds: ID[]): Promise<Map<ID, IUser>> {
+		if (!userIds.length) {
+			return new Map();
+		}
+
+		const users = await this.find({
+			where: { id: In(userIds) },
+			relations: { image: true }
+		});
+
+		return new Map(users.map((user) => [user.id, user]));
+	}
+}

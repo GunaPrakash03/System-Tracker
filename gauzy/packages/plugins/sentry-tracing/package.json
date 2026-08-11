@@ -1,0 +1,66 @@
+{
+	"name": "@gauzy/plugin-sentry",
+	"version": "0.1.0",
+	"description": "Gauzy Sentry Plugin - Seamless integration with Sentry for advanced error tracking and monitoring in Gauzy Platform.",
+	"author": {
+		"name": "Ever Co. LTD",
+		"email": "ever@ever.co",
+		"url": "https://ever.co"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ever-co/ever-gauzy",
+		"directory": "packages/plugins/sentry-tracing"
+	},
+	"bugs": {
+		"url": "https://github.com/ever-co/ever-gauzy/issues"
+	},
+	"homepage": "https://ever.co",
+	"license": "AGPL-3.0",
+	"private": true,
+	"type": "commonjs",
+	"main": "./src/index.js",
+	"typings": "./src/index.d.ts",
+	"scripts": {
+		"lib:build": "yarn nx build plugin-sentry",
+		"lib:build:prod": "yarn nx build plugin-sentry",
+		"lib:watch": "yarn nx build plugin-sentry --watch"
+	},
+	"peerDependencies": {
+		"@nestjs/common": "^11.1.26",
+		"@nestjs/core": "^11.1.26"
+	},
+	"dependencies": {
+		"@gauzy/config": "^0.1.0",
+		"@gauzy/core": "^0.1.0",
+		"@gauzy/plugin": "^0.1.0",
+		"@nestjs/graphql": "^13.4.2",
+		"@sentry/node": "10.36.0",
+		"@sentry/core": "10.36.0",
+		"chalk": "^4.1.0",
+		"express": "^5.2.1",
+		"rxjs": "^7.8.2",
+		"tslib": "^2.6.2"
+	},
+	"devDependencies": {
+		"@types/jest": "30.0.0",
+		"@types/node": "^24.10.0",
+		"typescript": "^5.9.3"
+	},
+	"keywords": [
+		"gauzy",
+		"sentry",
+		"plugin",
+		"error-tracking",
+		"monitoring",
+		"nestjs",
+		"typescript",
+		"logging",
+		"observability"
+	],
+	"engines": {
+		"node": ">=22",
+		"yarn": ">=1.22"
+	},
+	"sideEffects": false
+}

@@ -1,0 +1,23 @@
+export const ManageUserInvitesPage = {
+	manageInvitesButtonCss: 'button[status="primary"]:has-text("Manage Invites")',
+	gridButtonCss: 'div.layout-switch > button',
+	selectTableRowCss: 'table > tbody > tr.angular2-smart-row',
+	copyLinkButtonCss: 'button.action.success',
+	resendInviteButtonCss: 'button.action.warning',
+	deleteInviteButtonCss: 'button.action:has(nb-icon[icon="trash-2-outline"])',
+	cancelResendInviteButtonCss: 'nb-card-footer button[status="basic"]',
+	confirmResendInviteButtonCss: 'nb-card-footer button[status="success"]',
+	cancelDeleteInviteButtonCss: 'nb-card-footer button[status="basic"]',
+	confirmDeleteInviteButtonCss: 'nb-card-footer button[status="danger"]',
+	toastrMessageCss: 'nb-toast.ng-trigger',
+	inviteButtonCss: 'button.invite-button[status="success"]',
+	emailInputCss: '#emails',
+	dateInputCss: 'input[formcontrolname="startedWorkOn"]',
+	saveButtonCss: 'nb-card-footer button[status="success"]',
+	verifyEmailCss: 'table-cell-view-mode > div > div.ng-star-inserted',
+	rolesInputCss: 'nb-select#role',
+	rolesDropdownCss: 'nb-option',
+	searchEmailInputCss: 'angular2-smart-table-filter input[placeholder="Email"]',
+	clientsTableData: 'td.ng-star-inserted',
+	clientsTableRow: 'tr.angular2-smart-row'
+};

@@ -1,0 +1,66 @@
+<nb-card class="app-usage">
+	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
+		<p class="text-hint">
+			<b>Running</b> is how long the process existed — background services included.
+			<b>On screen</b> is how long its window actually held focus. They are different
+			measurements: a database can run all day without anyone looking at it.
+		</p>
+
+		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+
+		<table class="table" *ngIf="rows.length || backgroundRows.length">
+			<thead>
+				<tr>
+					<th>App</th>
+					<th class="num">Running</th>
+					<th class="num">On screen</th>
+					<th class="num">Share of screen time</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr *ngFor="let r of rows">
+					<td>{{ r.title }}</td>
+					<td class="num muted">{{ fmt(r.runningSeconds) }}</td>
+					<td class="num strong">{{ fmt(r.onScreenSeconds) }}</td>
+					<td class="num">
+						<span class="bar" [style.width.%]="sharePct(r)"></span>
+						<span class="pct">{{ sharePct(r) | number: '1.0-0' }}%</span>
+					</td>
+				</tr>
+
+				<!-- Everything that never held focus, collapsed to one line. Listing
+				     twenty services individually buries the four apps that matter. -->
+				<tr *ngIf="backgroundRows.length && !showBackground" class="background-row">
+					<td>
+						<span class="muted">{{ backgroundNames }}</span>
+						<button nbButton ghost size="tiny" (click)="showBackground = true">show all</button>
+					</td>
+					<td class="num muted">{{ fmt(backgroundRunning) }}</td>
+					<td class="num muted">0</td>
+					<td class="num muted">0%</td>
+				</tr>
+				<ng-container *ngIf="showBackground">
+					<tr *ngFor="let r of backgroundRows" class="background-row">
+						<td class="muted">{{ r.title }}</td>
+						<td class="num muted">{{ fmt(r.runningSeconds) }}</td>
+						<td class="num muted">0</td>
+						<td class="num muted">0%</td>
+					</tr>
+					<tr>
+						<td colspan="4">
+							<button nbButton ghost size="tiny" (click)="showBackground = false">
+								collapse background processes
+							</button>
+						</td>
+					</tr>
+				</ng-container>
+			</tbody>
+		</table>
+
+		<p class="text-hint mt-2" *ngIf="backgroundRows.length">
+			{{ backgroundRows.length }} background process(es) ran without ever being on screen. They are
+			tracked deliberately — headless work is invisible to other trackers — but they are not
+			something the employee was looking at, so they carry no share.
+		</p>
+	</nb-card-body>
+</nb-card>

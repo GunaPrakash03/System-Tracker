@@ -1,0 +1,69 @@
+{
+	"name": "@gauzy/plugin",
+	"version": "0.1.0",
+	"description": "Ever Gauzy Platform Plugin module",
+	"author": {
+		"name": "Ever Co. LTD",
+		"email": "ever@ever.co",
+		"url": "https://ever.co"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ever-co/ever-gauzy",
+		"directory": "packages/plugin"
+	},
+	"bugs": {
+		"url": "https://github.com/ever-co/ever-gauzy/issues"
+	},
+	"homepage": "https://ever.co",
+	"license": "AGPL-3.0",
+	"private": true,
+	"type": "commonjs",
+	"main": "./src/index.js",
+	"typings": "./src/index.d.ts",
+	"scripts": {
+		"lib:build": "yarn nx build plugin",
+		"lib:build:prod": "yarn nx build plugin",
+		"lib:watch": "yarn nx build plugin --watch"
+	},
+	"peerDependencies": {
+		"@nestjs/common": "^11.1.26",
+		"@nestjs/core": "^11.1.26"
+	},
+	"dependencies": {
+		"@gauzy/config": "^0.1.0",
+		"@gauzy/utils": "^0.1.0",
+		"chalk": "^4.1.0",
+		"tslib": "^2.6.2",
+		"underscore": "^1.13.8"
+	},
+	"devDependencies": {
+		"@types/jest": "30.0.0",
+		"@types/node": "^24.10.0",
+		"typescript": "^5.9.3"
+	},
+	"keywords": [
+		"plugin",
+		"ever-gauzy",
+		"nestjs",
+		"typescript",
+		"common-module",
+		"shared-module",
+		"platform",
+		"chalk",
+		"underscore",
+		"modular",
+		"enterprise",
+		"open-source",
+		"agpl",
+		"nx",
+		"plugin-system"
+	],
+	"engines": {
+		"node": ">=22",
+		"yarn": ">=1.22"
+	},
+	"sideEffects": false
+}
+
+

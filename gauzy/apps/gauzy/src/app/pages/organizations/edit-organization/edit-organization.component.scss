@@ -1,0 +1,121 @@
+@use 'var' as *;
+@use 'themes' as *;
+@use 'gauzy/_gauzy-overrides' as ga-overrides;
+
+:host .card-scroll {
+    background-color: nb-theme(gauzy-card-2);
+
+    & .header {
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-top: 25px;
+        border-bottom: none;
+    }
+
+    & .header-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .org-image {
+        width: 48px;
+        height: 48px;
+        @include nb-ltr(margin-right, 17px !important);
+        @include nb-ltr(margin-left, 0px !important);
+        @include nb-rtl(margin-right, 0px !important);
+        @include nb-rtl(margin-left, 17px !important);
+    }
+    .org-name {
+        font-size: 14px !important;
+        font-style: normal;
+        font-weight: 600 !important;
+        line-height: 17px;
+        letter-spacing: 0em;
+        margin-bottom: 3px;
+    }
+    .org-position {
+        font-size: 12px !important;
+        font-style: normal;
+        font-weight: 400;
+        line-height: 15px;
+        letter-spacing: 0em;
+    }
+
+    & .edit-public-page {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        padding: 2px 12px;
+        box-sizing: border-box;
+        border-radius: nb-theme(button-rectangle-border-radius);
+        border: 2px solid nb-theme(color-primary-transparent-default);
+        font-size: 12px;
+        font-style: normal;
+        font-weight: 600;
+        line-height: 11px;
+        letter-spacing: 0em;
+        text-align: left;
+        color: nb-theme(text-primary-color);
+        cursor: pointer;
+    }
+
+    & nb-card-body {
+        padding: 0;
+    }
+}
+
+// Removed most of a block of old styles — but NOT all of it, because this
+// stylesheet is not scoped to one template. `accounting.component.ts` lists it in
+// its own `styleUrls` alongside `accounting.component.scss`, so every selector
+// here is compiled a SECOND time carrying the Accounting template's `_ngcontent`
+// attribute. "Dead in edit-organization" therefore does not mean dead.
+//
+// Checked against both templates. Dead in each, and gone: `.edit-icon`,
+// `.setting-name`, `.transparent`, `.settings-body`, `.header-content` (with its
+// nested `.header-info`), `.org-details .edit-public-page` (a literal `#027ad6`,
+// and in edit-organization's own markup `.edit-public-page` is a SIBLING of
+// `.org-details`, never a descendant), and `.mutation-card.setting-block` (a
+// literal `#eaf3fc` fill — Accounting has `setting-block` but never
+// `mutation-card`, so the compound selector matches nothing there either).
+//
+// KEPT, because Accounting really renders them: `.body-header`
+// (accounting.component.html line 3) and `.sub-header` (line 83, as
+// `setting-block sub-header`). accounting.component.scss re-declares
+// `.body-header` but sets no `margin-bottom`, and it is loaded after this file,
+// so dropping these would have silently pulled 35px out from under the Accounting
+// page header and dropped the bold from its section headings.
+.body-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 35px;
+}
+
+.sub-header {
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+@include respond(sm) {
+    .header .header-container {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .org-image {
+        margin-bottom: 10px;
+    }
+}
+
+:host{
+    nb-card{
+        height: unset;
+    }
+    // `--gauzy-card-1` is not emitted by every registered theme, and a bare
+    // `var()` with no fallback drops the whole `background-color` declaration
+    // there, leaving every input on this page transparent. `--card-background-color`
+    // is a core Nebular token present in all of them, and it is exactly what
+    // `gauzy-card-1` is aliased to in most themes anyway.
+    @include ga-overrides.input-appearance(42px, var(--gauzy-card-1, var(--card-background-color)));
+}

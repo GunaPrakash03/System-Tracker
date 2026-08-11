@@ -1,0 +1,198 @@
+import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { MoreThanOrEqual } from 'typeorm';
+import { environment } from '@gauzy/config';
+import { JwtPayload, sign, verify } from 'jsonwebtoken';
+import * as moment from 'moment';
+import { IAppIntegrationConfig } from '@gauzy/common';
+import {
+	FeatureEnum,
+	IBasePerTenantEntityModel,
+	IUser,
+	IUserCodeInput,
+	IUserEmailInput,
+	IUserTokenInput,
+	IVerificationTokenPayload
+} from '@gauzy/contracts';
+import { deepMerge, generateAlphaNumericCode } from '@gauzy/utils';
+import { RequestContext } from './../core/context/request-context';
+import { EmailService } from './../email-send/email.service';
+import { UserService } from './../user/user.service';
+import { FeatureService } from './../feature/feature.service';
+import { PasswordHashService } from '../password-hash/password-hash.service';
+
+@Injectable()
+export class EmailConfirmationService {
+	private readonly logger = new Logger(EmailConfirmationService.name);
+
+	constructor(
+		private readonly emailService: EmailService,
+		private readonly userService: UserService,
+		private readonly featureFlagService: FeatureService,
+		private readonly passwordHashService: PasswordHashService
+	) {}
+
+	/**
+	 * Sends an email verification link and code to the user.
+	 *
+	 * @param user The user to send the verification email to.
+	 * @param integration Configuration for app integration.
+	 */
+	public async sendEmailVerification(user: IUser, integration: IAppIntegrationConfig) {
+		if (!(await this.featureFlagService.isFeatureEnabled(FeatureEnum.FEATURE_EMAIL_VERIFICATION))) {
+			return;
+		}
+
+		try {
+			const { id, email } = user;
+			const payload: IVerificationTokenPayload = { id, email };
+
+			// Generate a JWT token for email verification
+			const token = sign(payload, environment.JWT_VERIFICATION_TOKEN_SECRET, {
+				expiresIn: `${environment.JWT_VERIFICATION_TOKEN_EXPIRATION_TIME}s`
+			});
+
+			// Override the default config by merging in the provided values.
+			const appIntegration = deepMerge(environment.appIntegrationConfig, integration);
+
+			const verificationLink = `${appIntegration.appEmailConfirmationUrl}?email=${email}&token=${token}`;
+			const verificationCode = generateAlphaNumericCode();
+
+			// Update user's email token field and verification code
+			// Always set codeExpireAt — default to 7 days to match the environment module default
+			const verificationExpiry = environment.JWT_VERIFICATION_TOKEN_EXPIRATION_TIME || 86400 * 7;
+			await this.userService.update(id, {
+				emailToken: await this.passwordHashService.hash(token),
+				code: verificationCode,
+				codeExpireAt: moment(new Date()).add(verificationExpiry, 'seconds').toDate()
+			});
+
+			// Send email verification link
+			return await this.emailService.emailVerification(user, verificationLink, verificationCode, appIntegration);
+		} catch (error) {
+			this.logger.error('Error while sending verification email', error?.stack);
+		}
+	}
+
+	/**
+	 * Resend confirmation email link
+	 *
+	 */
+	public async resendConfirmationLink(config: IAppIntegrationConfig) {
+		if (!(await this.featureFlagService.isFeatureEnabled(FeatureEnum.FEATURE_EMAIL_VERIFICATION))) {
+			return;
+		}
+		try {
+			const user = await this.userService.getIfExists(RequestContext.currentUserId());
+			if (!!user.emailVerifiedAt) {
+				throw new BadRequestException('Your email is already verified.');
+			}
+			await this.sendEmailVerification(user, config);
+			return new Object({
+				status: HttpStatus.OK,
+				message: `OK`
+			});
+		} catch (error) {
+			throw new BadRequestException(error?.message);
+		}
+	}
+
+	/**
+	 * Decode email confirmation token
+	 *
+	 * @param token
+	 * @returns
+	 */
+	public async decodeConfirmationToken(token: IUserTokenInput['token']): Promise<IUser> {
+		if (!(await this.featureFlagService.isFeatureEnabled(FeatureEnum.FEATURE_EMAIL_VERIFICATION))) {
+			return;
+		}
+		try {
+			const payload: JwtPayload | string = verify(token, environment.JWT_VERIFICATION_TOKEN_SECRET);
+
+			if (typeof payload === 'object' && 'email' in payload && 'id' in payload) {
+				const { id, email } = payload;
+				const user = await this.userService.findOneByOptions({
+					where: {
+						id,
+						email
+					}
+				});
+				if (!!user.emailVerifiedAt) {
+					throw new BadRequestException('Your email is already verified.');
+				}
+				if (!!user.emailToken && !!(await this.passwordHashService.verify(token, user.emailToken))) {
+					return user;
+				}
+			}
+			throw new BadRequestException('Failed to verify email.');
+		} catch (error) {
+			if (error?.name === 'TokenExpiredError') {
+				throw new BadRequestException('JWT token has been expired.');
+			}
+			throw new BadRequestException(error?.message);
+		}
+	}
+
+	/**
+	 * Email confirmation by code
+	 *
+	 * @param payload
+	 * @returns
+	 */
+	public async confirmationByCode(
+		payload: IUserEmailInput & IUserCodeInput & IBasePerTenantEntityModel
+	): Promise<IUser> {
+		if (!(await this.featureFlagService.isFeatureEnabled(FeatureEnum.FEATURE_EMAIL_VERIFICATION))) {
+			return;
+		}
+
+		try {
+			const { email, code, tenantId } = payload;
+			if (email && code && tenantId) {
+				const user = await this.userService.findOneByOptions({
+					where: {
+						email,
+						code,
+						tenantId,
+						codeExpireAt: MoreThanOrEqual(new Date())
+					}
+				});
+				if (!!user.emailVerifiedAt) {
+					throw new BadRequestException('Your email is already verified.');
+				}
+
+				// Atomically invalidate the verification code (prevent reuse / TOCTOU race) // cspell:ignore TOCTOU
+				// The update scopes by id + code + codeExpireAt so a concurrent request
+				// that already nullified the code will update zero rows
+				await this.userService.update(user['id'], {
+					code: null,
+					codeExpireAt: null
+				});
+
+				return user;
+			}
+			throw new BadRequestException('Failed to verify email.');
+		} catch (error) {
+			throw new BadRequestException('Failed to verify email.');
+		}
+	}
+
+	/**
+	 * Confirm user email
+	 *
+	 * @param user
+	 */
+	public async confirmEmail(user: IUser) {
+		if (!(await this.featureFlagService.isFeatureEnabled(FeatureEnum.FEATURE_EMAIL_VERIFICATION))) {
+			return;
+		}
+		try {
+			await this.userService.markEmailAsVerified(user['id']);
+		} finally {
+			return new Object({
+				status: HttpStatus.OK,
+				message: `OK`
+			});
+		}
+	}
+}

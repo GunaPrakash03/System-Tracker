@@ -1,0 +1,12 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"outDir": "../../dist/out-tsc",
+		"module": "preserve",
+		"types": ["jest", "node", "google.maps"],
+		"moduleResolution": "bundler",
+		"isolatedModules": true
+	},
+	"files": ["src/test-setup.ts"],
+	"include": ["**/*.spec.ts", "**/*.test.ts", "**/*.d.ts"]
+}

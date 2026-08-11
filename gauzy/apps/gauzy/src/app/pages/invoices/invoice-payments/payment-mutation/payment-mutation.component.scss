@@ -1,0 +1,9 @@
+@use 'gauzy/_gauzy-dialogs' as *;
+
+.body {
+  width: 605px;
+}
+
+.main{
+  background: var(--gauzy-card-1);
+}

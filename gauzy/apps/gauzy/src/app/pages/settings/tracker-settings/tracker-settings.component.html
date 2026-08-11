@@ -1,0 +1,125 @@
+<nb-card>
+	<nb-card-header class="d-flex justify-content-between align-items-center">
+		<h5 class="mb-0">Tracker Settings</h5>
+		<nb-button-group size="small">
+			<button nbButton [class.selected]="tab === 'employees'" (click)="tab = 'employees'">Employees</button>
+			<button nbButton [class.selected]="tab === 'apps'" (click)="tab = 'apps'">App productivity</button>
+		</nb-button-group>
+	</nb-card-header>
+
+	<nb-card-body [nbSpinner]="loading" nbSpinnerStatus="primary">
+		<div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+		<div *ngIf="saved" class="alert alert-success">{{ saved }}</div>
+
+		<!-- Employees -->
+		<div *ngIf="tab === 'employees'">
+			<p class="text-hint">
+				Applied by the tracker within 60 seconds — no restart. Leaving a value at
+				<b>Default</b> lets the workstation's own configuration decide.
+			</p>
+			<table class="table">
+				<thead>
+					<tr>
+						<th>Employee</th>
+						<th>Screenshot every</th>
+						<th>Idle after</th>
+						<th>Media counts as idle</th>
+						<th>Blur screenshots</th>
+						<th>Department</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr *ngFor="let row of employees">
+						<td>{{ row.label }}</td>
+						<td>
+							<nb-select size="small" [(selected)]="row.interval">
+								<nb-option *ngFor="let i of intervals" [value]="i.value">{{ i.label }}</nb-option>
+							</nb-select>
+						</td>
+						<td>
+							<nb-select size="small" [(selected)]="row.idleAfter">
+								<nb-option *ngFor="let i of idleAfters" [value]="i.value">{{ i.label }}</nb-option>
+							</nb-select>
+						</td>
+						<td><nb-toggle [(checked)]="row.mediaIdle"></nb-toggle></td>
+						<td><nb-toggle [(checked)]="row.blur"></nb-toggle></td>
+						<td>
+							<nb-select size="small" [(selected)]="row.departmentId">
+								<nb-option value="">—</nb-option>
+								<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
+							</nb-select>
+						</td>
+						<td>
+							<button nbButton size="small" status="primary" (click)="saveEmployee(row)">Save</button>
+						</td>
+					</tr>
+					<tr *ngIf="!employees.length && !loading">
+						<td colspan="7" class="text-hint">No employees found.</td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="text-hint">
+				A screenshot interval is snapped to the tracker's slot interval, because a screenshot
+				can only be attached to a time slot that exists. Asking for a shorter interval than the
+				slot captures once per slot rather than producing screenshots the dashboard cannot show.
+			</p>
+		</div>
+
+		<!-- App productivity -->
+		<div *ngIf="tab === 'apps'">
+			<p class="text-hint">
+				Stored in Gauzy against each employee, so there is no separate service to run.
+				Apps are matched on <b>process name</b> — what the tracker reports, such as
+				<code>chrome</code>, <code>code</code> or <code>postgres</code>. The same app can be
+				productive for one department and unproductive for another. Anything unclassified counts
+				as Neutral.
+			</p>
+			<nb-select [(selected)]="appDept" (selectedChange)="refreshApps()" placeholder="Department">
+				<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
+			</nb-select>
+			<p *ngIf="!departments.length" class="text-hint mt-2">
+				No departments yet — add them under <b>Organization → Departments</b>, then they appear here.
+			</p>
+
+			<table class="table mt-3" *ngIf="appDept">
+				<thead>
+					<tr>
+						<th>Process name</th>
+						<th>Category</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr *ngFor="let a of apps">
+						<td>{{ a.name }}</td>
+						<td>
+							<nb-select size="small" [(selected)]="a.category">
+								<nb-option *ngFor="let c of categories" [value]="c">{{ c }}</nb-option>
+							</nb-select>
+						</td>
+						<td>
+							<button nbButton size="small" status="primary" (click)="saveApp(a.name, a.category)">
+								Save
+							</button>
+							<button nbButton size="small" status="danger" (click)="removeApp(a.name)">Remove</button>
+						</td>
+					</tr>
+					<tr>
+						<td><input nbInput fieldSize="small" [(ngModel)]="newApp" placeholder="e.g. spotify" /></td>
+						<td>
+							<nb-select size="small" [(selected)]="newAppCategory">
+								<nb-option *ngFor="let c of categories" [value]="c">{{ c }}</nb-option>
+							</nb-select>
+						</td>
+						<td>
+							<button nbButton size="small" status="success" (click)="saveApp(newApp, newAppCategory)">
+								Add
+							</button>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</nb-card-body>
+</nb-card>

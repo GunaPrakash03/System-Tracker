@@ -1,0 +1,18 @@
+@use 'var' as *;
+
+ng-select {
+	.selector-template {
+		display: flex;
+		align-items: center;
+	}
+
+	img {
+		margin-right: 5px;
+		margin-left: 5px;
+		border-radius: nb-theme(button-rectangle-border-radius);
+	}
+}
+
+// The `.ng-value-container` inset used to be zeroed here, which is what left the
+// employee selector's text on a different x from the team and project ones next
+// to it. The trigger now carries one shared inset (`ng-select-overrides`).

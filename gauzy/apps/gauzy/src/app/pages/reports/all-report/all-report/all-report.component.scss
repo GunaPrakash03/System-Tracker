@@ -1,0 +1,108 @@
+@use 'themes' as *;
+
+:host {
+  .category-icon {
+    img {
+      width: 24px;
+    }
+  }
+  .card-grid {
+    display: grid;
+    -webkit-box-align: center;
+    align-items: center;
+    -webkit-box-pack: start;
+    justify-content: start;
+    column-gap: 1rem;
+    grid-gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+  }
+  a {
+    text-decoration: none;
+  }
+  // The report description. `height: 27px` fits exactly one line, but the seeded
+  // descriptions run 60-90 characters and the grid track is `minmax(21rem, 1fr)`
+  // — so on most cards the second line spilled out of the box and landed on top
+  // of the screenshot below it. A MIN height keeps the single-line cards aligned
+  // with each other and lets the rest push the image down instead.
+  .caption {
+    min-height: 27px;
+  }
+  .image-container {
+    position: relative;
+    margin-top: 10px;
+    object-fit: cover;
+    height: 183px;
+    & img {
+      position: absolute;
+      width: 450px;
+    }
+  }
+}
+
+.custom-view-report {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  // No edge of its own. This div is a pure wrapper around a flush
+  // `<nb-card class="border-0 m-0 card-nb">` (zero margin, zero border), and the
+  // card already draws the shared 1px `card-shadow` ring — so the two hairlines
+  // landed on top of each other, ~0px apart. `border: nb-theme(border-radius)`
+  // was also a typo for `border-radius` that resolved to `border: 0.5rem` with
+  // style `none`, i.e. a computed width of 0: it never painted anything.
+  border-radius: nb-theme(border-radius);
+  & .custom-button {
+    height: 40px;
+    width: 120px;
+    position: absolute;
+    left: 50%;
+    margin-left: -60px;
+    top: 50%;
+    margin-top: -20px;
+    visibility: hidden;
+  }
+
+  &:hover {
+    border-radius: nb-theme(border-radius);
+    & .image-container,
+    & .caption {
+      opacity: 30%;
+    }
+    & .custom-button {
+      opacity: 100%;
+      transition: ease-out 0.5s;
+      z-index: 10;
+      visibility: visible;
+    }
+  }
+}
+
+.content {
+  background-color: nb-theme(gauzy-card-2);
+	padding: 1rem;
+	flex-direction: column;
+	display: flex;
+	gap: 1rem;
+}
+nb-card-body {
+  border-radius: 0 0 nb-theme(border-radius) nb-theme(border-radius);
+}
+
+// NOTE: `::-webkit-scrollbar { display: none }` used to sit here. Emulated
+// encapsulation scopes it to this component's own elements, so it hid the
+// scrollbar on the card body holding the whole report grid: the page still
+// scrolled — several category rows deep — with nothing on screen saying so, and
+// it was the only page in this area without the normal scrollbar.
+
+.report-category-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0em;
+}
+.report-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 17px;
+  letter-spacing: 0em;
+}

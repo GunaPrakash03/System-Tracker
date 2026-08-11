@@ -1,0 +1,307 @@
+@use 'gauzy/_gauzy-cards' as *;
+@use './swiper' as swiper;
+
+:host {
+  background-color: rgba(50, 50, 50, 0.02);
+
+  ::ng-deep {
+    nb-progress-bar {
+      .progress-value {
+        span {
+          display: none;
+        }
+      }
+    }
+  }
+
+  // Include Swiper styles from separate file (doesn't need ng-deep for Custom Elements in template)
+  @include swiper.swiper-styles();
+
+  nb-card.member-list {
+    nb-card-body {
+      padding: 8px;
+      .list {
+        max-height: 65vh;
+        overflow-y: auto;
+      }
+    }
+  }
+
+  .nb-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .card-header {
+    background-color: unset;
+  }
+
+  .button-container {
+    display: flex;
+    gap: 1rem;
+  }
+
+  [nbButton].appearance-outline.status-primary {
+    background-color: unset;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 15px;
+    letter-spacing: 0em;
+    border-color: var(--gauzy-background-transparent);
+    color: var(--button-outline-primary-text-color);
+    border-width: 2px;
+    padding: 4px 10px;
+  }
+}
+
+.hour-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.link-text {
+  cursor: pointer;
+  text-decoration: none;
+  color: #1e6bb8;
+  font-size: small;
+}
+
+.member-weekly-activity-graph {
+  display: flex;
+  align-items: flex-end;
+  margin-left: 15px;
+  min-height: 30px;
+
+  .bar-graph-entry {
+    width: 7px;
+    margin-right: 3px;
+    background-color: #0095ff;
+    min-height: 1px;
+  }
+}
+
+nb-badge {
+  position: unset;
+  display: table;
+  margin: 10px auto 0;
+}
+
+.filter {
+  width: 100%;
+}
+
+:host {
+  nb-card {
+    background-color: var(--background-basic-color-1);
+    box-shadow: 0px 6px 20px 0px rgb(0 0 0 / 5%);
+    border-radius: var(--border-radius);
+  }
+
+  nb-card-body,
+  nb-list {
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
+  }
+
+  /*
+   * `auto` height, NOT `calc($default-card-height ± …)`.
+   *
+   * `$default-card-height` is `100vh` minus the header, the footer and a
+   * hand-tuned `11.5rem` standing in for the rest of the page chrome. That
+   * guess is now wrong twice over — the density pass re-cut the tab, card and
+   * button metrics, and the dashboard grew an always-visible chips row — so the
+   * card was pinned to the wrong height and scrolled inside the page.
+   *
+   * The dashboard page owns the single scrollbar now (see
+   * `apps/gauzy/src/app/pages/dashboard/dashboard.component.scss`); this card
+   * just grows to fit its widgets.
+   */
+  @include card_overrides(unset, auto, 0 $default-radius $default-radius $default-radius);
+
+  // The single `:host .card` block (SonarCloud flagged a second one). It has to
+  // sit AFTER `card_overrides` above: that mixin emits its own `:host .card`
+  // with `height: 100%` at the very same specificity, so the block that comes
+  // last wins. Merging these declarations into the earlier `:host` block — the
+  // obvious reading of "de-duplicate the selector" — would put them *before* the
+  // mixin and hand the viewport-sized height back to the card body.
+  .card {
+    background-color: var(--gauzy-card-2);
+    // `card_overrides` pins `.card` to `height: 100%`, which is what forced the
+    // body into a viewport-sized box. Content-driven height instead.
+    height: auto;
+  }
+
+  ngx-activity-item.tracking-progress ::ng-deep {
+    .progress-container {
+      height: 5px !important;
+    }
+  }
+
+  nb-progress-bar.custom-progress ::ng-deep {
+    .progress-container {
+      height: 5px !important;
+    }
+  }
+
+  ::ng-deep {
+    .toggle-label {
+      margin-bottom: 0;
+    }
+  }
+
+  .custom-toggle {
+    ::ng-deep {
+      span.text {
+        color: nb-theme(text-primary-color);
+      }
+    }
+  }
+
+  .card-body {
+    background-color: var(--gauzy-card-2);
+  }
+
+  .project-name {
+    color: var(--gauzy-text-color-1);
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.custom-card-body-inner-list {
+  padding: 0 9px;
+  overflow: unset;
+  .custom-card-button {
+    display: flex;
+    justify-content: flex-end;
+    margin: 1rem 15px 0 15px;
+  }
+}
+
+.font-weight-bold {
+  font-weight: 600;
+  color: var(--gauzy-text-color-2);
+}
+nb-card-header {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: -0.009em;
+  color: var(--gauzy-text-color-2);
+}
+.custom-container {
+  display: grid;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: start;
+  justify-content: start;
+  column-gap: 1rem;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+}
+
+.custom-card-body-inner,
+.custom-card-body-inner-list {
+  background-color: nb-theme(gauzy-card-2);
+}
+
+nb-card-body > .header-widget {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: -0.009em;
+  color: var(--gauzy-text-color-2);
+  margin-bottom: 15px;
+  nb-icon {
+    font-size: 11px;
+  }
+}
+
+.counter-container {
+  width: 71%;
+}
+
+.manage-widget {
+  font-size: 12px;
+  font-weight: 400;
+  &[nbButton] {
+    color: var(--gauzy-text-color-1);
+    background-color: var(--gauzy-card-1);
+  }
+  nb-icon {
+    height: 11px;
+    width: 11px;
+  }
+  &.undo {
+    font-size: 10px;
+    font-weight: 600;
+    &[nbButton].appearance-filled.status-basic {
+      color: var(--text-primary-color);
+    }
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+}
+
+.widget-popover {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 14px;
+  gap: 21px;
+  min-width: 219px;
+  .category {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    width: 100%;
+    .view {
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 12px;
+      letter-spacing: 0em;
+      color: rgba(126, 126, 143, 0.5);
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      width: 100%;
+    }
+    .title {
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 15px;
+      letter-spacing: 0em;
+      color: var(--gauzy-text-color-2);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      width: 100%;
+    }
+  }
+  .line {
+    border-bottom: 0.5px solid rgba(126, 126, 143, 0.25);
+    width: 100%;
+  }
+}
+
+// The widget grid: no `overflow` and no `height` — this block is exactly what
+// the report was about. It grows to its natural height and the dashboard page
+// scrolls, so there is one scrollbar on screen instead of two.
+:host .container {
+  max-width: unset;
+  border-radius: 0 0 $default-radius $default-radius;
+  @include nb-ltr(padding, 0 0.5rem 0 0);
+  @include nb-rtl(padding, 0 0 0 0.5rem);
+}
+
+:host .card-body {
+  @include nb-ltr(padding, 1rem 0.5rem 1rem 18px);
+  @include nb-rtl(padding, 1rem 18px 1rem 0.5rem);
+  border-radius: 0 0 $default-radius $default-radius;
+  // Was a `!important` viewport calc; see the `card_overrides` note above.
+  height: auto !important;
+}

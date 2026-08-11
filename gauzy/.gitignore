@@ -1,0 +1,162 @@
+# See http://help.github.com/ignore-files/ for more about ignoring files.
+
+# compiled output
+/dist
+/tmp
+/out-tsc
+
+# dependencies
+node_modules/
+
+# sqlite3 database
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.angular/cache
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+lerna-debug.log
+testem.log
+/typings
+migrations.json
+
+# System Files
+.DS_Store
+Thumbs.db
+
+.env
+.env.prod
+
+# Nx
+.nx
+
+# Typeorm Logs
+ormlogs.log
+
+# Cache File
+/.cache
+/apps/**/.cache
+/packages/**/.cache
+/packages/**/dist
+
+/.deploy/nginx/log
+
+/apps/agent/src/environments/environment.prod.ts
+/apps/agent/src/environments/environment.ts
+
+/apps/gauzy/src/environments/environment.prod.ts
+/apps/gauzy/src/environments/environment.ts
+
+/packages/ui-config/src/lib/environments/environment.prod.ts
+/packages/ui-config/src/lib/environments/environment.ts
+
+/apps/desktop-timer/src/environments/environment.prod.ts
+/apps/desktop-timer/src/environments/environment.ts
+
+/apps/desktop/src/environments/environment.prod.ts
+/apps/desktop/src/environments/environment.ts
+
+/apps/server/src/environments/environment.prod.ts
+/apps/server/src/environments/environment.ts
+
+/apps/server-api/src/environments/environment.prod.ts
+/apps/server-api/src/environments/environment.ts
+
+/export
+/import
+/apps/api/*.tsbuildinfo
+
+megalinter-reports/
+
+/.deploy/jitsu/configurator/data/logs/*.log
+/.deploy/jitsu/server/data/logs/*.log
+/.deploy/redis/data/*.rdb
+/.deploy/redis/jitsu_users_recognition/data/*.rdb
+/.deploy/jitsu/server/data/logs/events
+
+# No need to duplicate translations
+/apps/agent/src/assets/i18n
+/apps/desktop-timer/src/assets/i18n
+/apps/desktop/src/assets/i18n
+/apps/server/src/assets/i18n
+/apps/server-api/src/assets/i18n
+
+# No need to duplicate desktop icons
+/apps/agent/src/icons
+/apps/desktop-timer/src/icons
+/apps/desktop/src/icons
+/apps/server/src/icons
+/apps/server-api/src/icons
+
+# Generated platform logo
+apps/agent/src/assets/images/logos/platform_logo.*
+apps/desktop-timer/src/assets/images/logos/platform_logo.*
+apps/desktop/src/assets/images/logos/platform_logo.*
+apps/server/src/assets/images/logos/platform_logo.*
+apps/server-api/src/assets/images/logos/platform_logo.*
+
+# Generated No internet logo
+apps/agent/src/assets/images/logos/no_internet_logo.*
+apps/desktop-timer/src/assets/images/logos/no_internet_logo.*
+apps/desktop/src/assets/images/logos/no_internet_logo.*
+apps/server/src/assets/images/logos/no_internet_logo.*
+apps/server-api/src/assets/images/logos/no_internet_logo.*
+
+# Generated desktop icon tray
+apps/agent/src/assets/icons/tray
+apps/desktop-timer/src/assets/icons/tray
+apps/desktop/src/assets/icons/tray
+apps/server/src/assets/icons/tray
+apps/server-api/src/assets/icons/tray
+
+# Generated desktop 512x512 icon
+apps/agent/src/assets/icons/desktop_logo_512x512.png
+apps/desktop-timer/src/assets/icons/desktop_logo_512x512.png
+apps/desktop/src/assets/icons/desktop_logo_512x512.png
+apps/server/src/assets/icons/desktop_logo_512x512.png
+apps/server-api/src/assets/icons/desktop_logo_512x512.png
+
+# Generated desktop icon menu
+apps/agent/src/assets/icons/menu
+apps/desktop-timer/src/assets/icons/menu
+apps/desktop/src/assets/icons/menu
+apps/server/src/assets/icons/menu
+apps/server-api/src/assets/icons/menu
+
+.angular
+
+# Ignore cursor AI Rules
+.cursor/rules/codacy.mdc
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# MCP Server certificates (contains sensitive data)
+**/certs/**
+**/certs/**/*.{pem,key,crt,csr,pfx,p12}
+!**/certs/**/README.md
+!**/certs/**/.gitkeep
+
+/Tempnx-console-tmp**/**

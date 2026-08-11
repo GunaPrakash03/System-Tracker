@@ -1,0 +1,22 @@
+@use 'themes' as *;
+
+:host {
+  nb-card {
+    nb-card-body {
+      overflow: unset;
+    }
+  }
+  ::ng-deep nb-route-tabset .route-tab .tab-link {
+    border-radius: nb-theme(border-radius) nb-theme(border-radius) 0 0;
+    svg {
+      fill: nb-theme(text-primary-color);
+    }
+    span {
+      display: inline-block;
+      text-transform: initial;
+      &:first-letter {
+        text-transform: uppercase;
+      }
+    }
+  }
+}

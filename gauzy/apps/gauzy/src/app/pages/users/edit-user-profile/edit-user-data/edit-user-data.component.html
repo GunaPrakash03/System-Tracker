@@ -1,0 +1,7 @@
+@if (!!user) {
+  <ngx-profile
+    [selectedUser]="user"
+    [allowRoleChange]="true"
+    (userSubmitted)="goBack()"
+  ></ngx-profile>
+}

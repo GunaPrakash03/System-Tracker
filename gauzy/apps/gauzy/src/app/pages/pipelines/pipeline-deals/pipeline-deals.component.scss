@@ -1,0 +1,17 @@
+@forward '@shared/_pg-card';
+
+:host {
+  .card-header-title {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  nb-select {
+    min-width: 9rem;
+  }
+
+  .grid {
+    height: 100%;
+    overflow: auto;
+  }
+}

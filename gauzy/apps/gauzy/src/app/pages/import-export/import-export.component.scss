@@ -1,0 +1,40 @@
+@use 'gauzy/_gauzy-table' as *;
+
+:host {
+
+    nb-card,
+    nb-card-body {
+        background-color: nb-theme(gauzy-card-2);
+        border-radius: nb-theme(border-radius);
+
+        .button-imports {
+            display: flex;
+            gap: 10px;
+        }
+
+        // The tray each toolbar button sits in. `2rem` made it a pill wrapped
+        // around a rectangular button, so the tray's corners stood well clear
+        // of the button's on both sides; the button radius token is what the
+        // shared `.actions` tray in `gauzy/_gauzy-table.scss` uses.
+        .button-import {
+            background-color: nb-theme(gauzy-card-2);
+            padding: 5px;
+            border-radius: nb-theme(button-rectangle-border-radius);
+        }
+
+        .info {
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 15px;
+            letter-spacing: 0em;
+            text-align: left;
+            color: nb-theme(gauzy-text-color-2);
+        }
+
+        // "Settings/" ahead of the page name, inside `ngx-header-title` — it
+        // inherits that component's size, and only the weight makes it recede.
+        .menu-setting {
+            font-weight: 400;
+        }
+    }
+}

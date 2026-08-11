@@ -1,0 +1,36 @@
+import { Component } from '@angular/core';
+import { DefaultFilter } from 'angular2-smart-table';
+import { InviteStatusEnum } from '@gauzy/contracts';
+
+@Component({
+	selector: 'ga-invite-status-filter',
+	template: `
+		<ng-select
+		  appendTo="body"
+		  [clearable]="true"
+		  [closeOnSelect]="true"
+		  [placeholder]="'SM_TABLE.STATUS' | translate"
+		  (change)="onChange($event)"
+		  >
+		  @for (status of inviteStatuses; track status) {
+		    <ng-option [value]="status">
+		      {{ status }}
+		    </ng-option>
+		  }
+		</ng-select>
+		`,
+	standalone: false
+})
+export class InviteStatusFilterComponent extends DefaultFilter {
+	protected inviteStatuses = Object.values(InviteStatusEnum);
+
+	/**
+	 * Handles the status selection change.
+	 * When the user clears the selection, value will be null/undefined which resets the filter.
+	 *
+	 * @param value - The selected invite status or null/undefined when cleared
+	 */
+	onChange(value: InviteStatusEnum | null | undefined): void {
+		this.column.filterFunction(value ?? null, this.column.id);
+	}
+}

@@ -1,0 +1,47 @@
+@use 'themes' as *;
+
+$radius: nb-theme(border-radius);
+
+.employee-optional-info {
+  	margin-top: 20px;
+}
+
+// `rgba(126, 126, 143, 0.1)` is the literal value this token carries on the
+// light themes; on `gauzy-dark` the token is a LIFTING white tint instead, so
+// reading it keeps the photo column one visible step off the tab surface there
+// rather than hoping a grey wash shows up on near-black.
+.organization-container {
+  background-color: var(--gauzy-sidebar-background-3);
+}
+
+.organization-photo img {
+  width: 100px;
+  height: 100px;
+  // A 25 %-black drop shadow is invisible against the near-black canvas — this
+  // avatar had no edge at all on `gauzy-dark`. The token is the same hairline
+  // on the light themes and a 1px ring on the dark one.
+  box-shadow: var(--gauzy-shadow);
+  object-fit: cover;
+  border-radius: $radius;
+}
+
+.content {
+  padding: 20px;
+}
+
+:host {
+  padding: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 20.5rem);
+  border-radius: 0 $radius $radius $radius;
+
+  ::ng-deep .employee-form{
+    @include nb-ltr(padding-left, 1rem);
+    @include nb-rtl(padding-right, 1rem);
+  }
+
+  .employee-form {
+    overflow: auto;
+    overflow-x: hidden;
+  }
+}

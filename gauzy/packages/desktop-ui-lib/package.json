@@ -1,0 +1,99 @@
+{
+	"name": "@gauzy/desktop-ui-lib",
+	"version": "0.1.0",
+	"description": "Ever Gauzy Platform desktop libs",
+	"author": {
+		"name": "Ever Co. LTD",
+		"email": "ever@ever.co",
+		"url": "https://ever.co"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ever-co/ever-gauzy",
+		"directory": "packages/desktop-ui-lib"
+	},
+	"bugs": {
+		"url": "https://github.com/ever-co/ever-gauzy/issues"
+	},
+	"homepage": "https://ever.co",
+	"license": "AGPL-3.0",
+	"private": true,
+	"scripts": {
+		"lib:build": "yarn nx build desktop-ui-lib --configuration=development",
+		"lib:build:prod": "yarn nx build desktop-ui-lib --configuration=production",
+		"lib:watch": "yarn nx build desktop-ui-lib --watch --configuration=development"
+	},
+	"peerDependencies": {
+		"@angular/common": "21.0.7",
+		"@angular/core": "21.0.7"
+	},
+	"dependencies": {
+		"@angular-slider/ngx-slider": "^21.0.0",
+		"@angular/animations": "21.0.7",
+		"@angular/cdk": "21.0.6",
+		"@angular/forms": "21.0.7",
+		"@angular/platform-browser": "21.0.7",
+		"@angular/platform-browser-dynamic": "21.0.7",
+		"@angular/router": "21.0.7",
+		"@gauzy/constants": "^0.1.0",
+		"@gauzy/contracts": "^0.1.0",
+		"@gauzy/ui-config": "^0.1.0",
+		"@gauzy/ui-core": "^0.1.0",
+		"@datorama/akita": "^8.0.1",
+		"@datorama/akita-ngdevtools": "^7.0.0",
+		"@electron/remote": "^2.0.8",
+		"@fortawesome/angular-fontawesome": "^4.0.0",
+		"@fortawesome/free-solid-svg-icons": "^7.1.0",
+		"@kurkle/color": "^0.4.0",
+		"@nebular/auth": "^17.0.0",
+		"@nebular/bootstrap": "^9.1.0-rc.6",
+		"@nebular/security": "^17.0.0",
+		"@nebular/theme": "^17.0.0",
+		"@ng-select/ng-select": "^21.0.0",
+		"@ngneat/until-destroy": "^10.0.0",
+		"@ngx-translate/core": "^17.0.0",
+		"@ngx-translate/http-loader": "^17.0.0",
+		"@ngneat/effects-ng": "3.1.4",
+		"@swimlane/ngx-charts": "^23.1.0",
+		"angular2-smart-table": "^4.1.1",
+		"ckeditor4-angular": "4.0.1",
+		"electron-log": "^4.4.8",
+		"electron-store": "^8.1.0",
+		"hash-it": "^6.0.0",
+		"moment": "^2.30.1",
+		"moment-duration-format": "^2.3.2",
+		"ngx-daterangepicker-material": "^6.0.4",
+		"rxjs": "^7.8.2",
+		"tslib": "^2.6.2",
+		"underscore": "^1.13.8"
+	},
+	"devDependencies": {
+		"@types/jest": "30.0.0",
+		"@types/moment-duration-format": "^2.2.7",
+		"@types/node": "^24.10.0",
+		"electron": "^38.1.2",
+		"jest-preset-angular": "16.0.0"
+	},
+	"keywords": [
+		"angular",
+		"desktop-ui",
+		"ui-library",
+		"electron",
+		"ngx",
+		"angular-library",
+		"ever-gauzy",
+		"gauzy",
+		"akita",
+		"nebular",
+		"smart-table",
+		"charts",
+		"ngx-translate",
+		"angular-ui",
+		"electron-angular"
+	],
+	"engines": {
+		"node": ">=22",
+		"yarn": ">=1.22"
+	},
+	"sideEffects": false
+}

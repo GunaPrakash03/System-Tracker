@@ -1,0 +1,124 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { ID, IPagination, IProductTypeTranslatable, LanguagesEnum } from '@gauzy/contracts';
+import { isNotEmpty } from '@gauzy/utils';
+import { BaseQueryDTO, TenantAwareCrudService } from './../core/crud';
+import { MultiORMEnum } from './../core/utils';
+import { RequestContext } from './../core/context';
+import { ProductType } from './product-type.entity';
+import { MikroOrmProductTypeRepository } from './repository/mikro-orm-product-type.repository';
+import { TypeOrmProductTypeRepository } from './repository/type-orm-product-type.repository';
+
+@Injectable()
+export class ProductTypeService extends TenantAwareCrudService<ProductType> {
+	constructor(
+		typeOrmProductTypeRepository: TypeOrmProductTypeRepository,
+		mikroOrmProductTypeRepository: MikroOrmProductTypeRepository
+	) {
+		super(typeOrmProductTypeRepository, mikroOrmProductTypeRepository);
+	}
+
+	/**
+	 * GET product types using pagination
+	 *
+	 * @param options
+	 * @param language
+	 * @returns
+	 */
+	public async pagination(options: BaseQueryDTO<ProductType>, language: LanguagesEnum) {
+		const { items, total } = await super.paginate(options);
+		return await this.mapTranslatedProductTypes(items as any, language).then((items) => {
+			return { items, total };
+		});
+	}
+
+	/**
+	 * UPDATE product type
+	 *
+	 * @param id
+	 * @param entity
+	 * @returns
+	 */
+	async updateProductType(id: ID, entity: ProductType): Promise<ProductType> {
+		try {
+			const tenantId = RequestContext.currentTenantId();
+
+			if (this.ormType === MultiORMEnum.TypeORM) {
+				return await this.typeOrmRepository.manager.transaction(async (transactionalEntityManager) => {
+					// 1. Ensure delete is scoped to the current tenant
+					await transactionalEntityManager.delete(ProductType, {
+						id,
+						...(isNotEmpty(tenantId) ? { tenantId } : {})
+					});
+
+					// 2. Ensure the entity injected has the correct tenantId before reproduction
+					if (isNotEmpty(tenantId)) {
+						entity.tenantId = tenantId;
+					}
+
+					return await transactionalEntityManager.save(entity);
+				});
+			}
+			await super.delete(id);
+			return await this.save(entity);
+		} catch (err) {
+			throw new BadRequestException(err);
+		}
+	}
+
+	/**
+	 * GET all product types
+	 *
+	 * @param options
+	 * @param language
+	 * @returns
+	 */
+	public async findProductTypes(
+		options: BaseQueryDTO<ProductType>,
+		language: LanguagesEnum
+	): Promise<IPagination<ProductType>> {
+		const { relations = [], where } = options;
+		const { items, total } = await this.findAll({
+			where,
+			relations
+		});
+		return await this.mapTranslatedProductTypes(items as any, language).then((items) => {
+			return { items, total };
+		});
+	}
+
+	/**
+	 * MAP product types translations
+	 *
+	 * @param items
+	 * @param languageCode
+	 * @returns
+	 */
+	async mapTranslatedProductTypes(items: IProductTypeTranslatable[], languageCode: LanguagesEnum) {
+		if (languageCode) {
+			return Promise.all(
+				items.map((type: IProductTypeTranslatable) => Object.assign({}, type, type.translate(languageCode)))
+			);
+		} else {
+			return items;
+		}
+	}
+
+	/**
+	 * MAP product type translations
+	 *
+	 * @param type
+	 * @param languageCode
+	 * @returns
+	 */
+	async mapTranslatedProductType(type: IProductTypeTranslatable, languageCode: LanguagesEnum) {
+		try {
+			if (languageCode) {
+				return Object.assign({}, type, type.translate(languageCode));
+			} else {
+				return type;
+			}
+		} catch (error) {
+			throw new BadRequestException(error);
+		}
+	}
+}

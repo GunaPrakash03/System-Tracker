@@ -1,0 +1,25 @@
+@use 'themes' as *;
+
+:host {
+  overflow-y: auto;
+  height: calc(100vh - 20.5rem);
+  ::ng-deep {
+    .container {
+      max-width: none;
+      .col-4 {
+        @include nb-ltr(padding-left, 0 !important);
+        @include nb-rtl(padding-right, 0 !important);
+      }
+    }
+  }
+
+  ::ng-deep {
+    nb-card {
+      padding: 1rem;
+
+      nb-card-body {
+        margin: 0 !important;
+      }
+    }
+  }
+}

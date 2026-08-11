@@ -1,0 +1,466 @@
+// NOTE: do NOT ever put here any secure settings! (e.g. Secret Keys)
+// We are using dotenv (.env) for consistency with other Platform projects
+// This is Angular app and all settings will be loaded into the client browser!
+
+import { existsSync, mkdirSync, unlinkSync, writeFile } from 'fs';
+import * as path from 'path';
+import { argv } from 'yargs';
+import { env } from './env';
+
+const environment = argv.environment;
+const isProd = environment === 'prod';
+
+// Version + commit are interpolated into single-quoted TS string literals below.
+// They only ever come from `git tag` / `git describe` / a commit SHA, but strip
+// anything outside the safe charset defensively so a malformed value can never
+// break out of the quotes and corrupt the generated environment file.
+const safeAppVersion = (env.GAUZY_APP_VERSION || '').replace(/[^\w.\-/]/g, '');
+const safeAppCommit = (env.GAUZY_APP_COMMIT || '').replace(/[^\w.\-/]/g, '');
+
+let envFileContent = `// NOTE: Auto-generated file
+// The file contents for the current environment will overwrite these during build.
+// The build system defaults to the dev environment which uses 'environment.ts', but if you do
+// 'ng build --env=prod' then 'environment.prod.ts' will be used instead.
+// The list of which env maps to which file can be found in '.angular-cli.json'.
+declare const window:any;
+
+import { Environment } from './model';
+
+`;
+
+let isDocker = env.IS_DOCKER;
+
+console.log('Is Running in Docker: ', isDocker);
+
+if (!isDocker) {
+	if (!env.GOOGLE_MAPS_API_KEY) {
+		console.warn('WARNING: No Google Maps API Key defined in the .env file. Google Maps may not be working!');
+	}
+
+	if (!env.SENTRY_DSN) {
+		console.warn('WARNING: No Sentry DSN defined in the .env file. Sentry logging may not be working!');
+	}
+
+	if (!env.JITSU_BROWSER_URL || !env.JITSU_BROWSER_WRITE_KEY) {
+		console.warn(
+			'WARNING: No Jitsu keys defined for browser in the .env file. Jitsu analytics may not be working!'
+		);
+	}
+
+	envFileContent += `
+
+	let API_BASE_URL = '${env.API_BASE_URL}';
+	let CLIENT_BASE_URL = '${env.CLIENT_BASE_URL}';
+
+	let IS_ELECTRON = false;
+	let IS_INTEGRATED_DESKTOP = false;
+
+	// https://github.com/electron/electron/issues/2288#issuecomment-337858978
+	const userAgent = navigator.userAgent.toLowerCase();
+	if (userAgent.indexOf(' electron/') > -1) {
+		try {
+			let variableGlobal: {
+				API_BASE_URL: string;
+				IS_INTEGRATED_DESKTOP: boolean;
+			} | any;
+
+			if (window.electronAPI && window.electronAPI.getGlobal) {
+				variableGlobal = window.electronAPI.getGlobal();
+			} else {
+				const remote = window.require('@electron/remote');
+				variableGlobal = remote.getGlobal('variableGlobal');
+			}
+			API_BASE_URL = variableGlobal.API_BASE_URL;
+			IS_ELECTRON = true;
+			IS_INTEGRATED_DESKTOP = variableGlobal.IS_INTEGRATED_DESKTOP;
+		} catch(e) {
+			console.log(e);
+		}
+	}
+
+	try {
+		if (window._env && window._env.api) {
+			API_BASE_URL= window._env.api;
+		}
+
+		if (window._env && window._env.api) {
+			CLIENT_BASE_URL = window.location.origin;
+		}
+	} catch(e) {}
+
+	export const environment: Environment =
+	{
+		production:  ${isProd},
+
+		version: '${safeAppVersion}',
+		commit: '${safeAppCommit}',
+
+		API_BASE_URL: API_BASE_URL,
+		CLIENT_BASE_URL: CLIENT_BASE_URL,
+		COOKIE_DOMAIN: '${env.COOKIE_DOMAIN}',
+
+		PLATFORM_WEBSITE_URL: '${env.PLATFORM_WEBSITE_URL}',
+		PLATFORM_WEBSITE_DOWNLOAD_URL: '${env.PLATFORM_WEBSITE_DOWNLOAD_URL}',
+		DESKTOP_APP_DOWNLOAD_LINK_APPLE: '${env.DESKTOP_APP_DOWNLOAD_LINK_APPLE}',
+		DESKTOP_APP_DOWNLOAD_LINK_WINDOWS: '${env.DESKTOP_APP_DOWNLOAD_LINK_WINDOWS}',
+		DESKTOP_APP_DOWNLOAD_LINK_LINUX: '${env.DESKTOP_APP_DOWNLOAD_LINK_LINUX}',
+		MOBILE_APP_DOWNLOAD_LINK: '${env.MOBILE_APP_DOWNLOAD_LINK}',
+		EXTENSION_DOWNLOAD_LINK: '${env.EXTENSION_DOWNLOAD_LINK}',
+
+		COMPANY_NAME: '${env.COMPANY_NAME}',
+		COMPANY_LINK: '${env.COMPANY_LINK}',
+		COMPANY_SITE_NAME: '${env.COMPANY_SITE_NAME}',
+		COMPANY_SITE_LINK: '${env.COMPANY_SITE_LINK}',
+		COMPANY_GITHUB_LINK: '${env.COMPANY_GITHUB_LINK}',
+		COMPANY_GITLAB_LINK: '${env.COMPANY_GITLAB_LINK}',
+		COMPANY_FACEBOOK_LINK: '${env.COMPANY_FACEBOOK_LINK}',
+		COMPANY_TWITTER_LINK: '${env.COMPANY_TWITTER_LINK}',
+		COMPANY_IN_LINK: '${env.COMPANY_IN_LINK}',
+
+		GOOGLE_AUTH_LINK: API_BASE_URL + '/api/auth/google',
+		FACEBOOK_AUTH_LINK: API_BASE_URL + '/api/auth/facebook',
+		LINKEDIN_AUTH_LINK: API_BASE_URL + '/api/auth/linkedin',
+		GITHUB_AUTH_LINK: API_BASE_URL + '/api/auth/github',
+		TWITTER_AUTH_LINK: API_BASE_URL + '/api/auth/twitter',
+		MICROSOFT_AUTH_LINK: API_BASE_URL + '/api/auth/microsoft',
+		AUTH0_AUTH_LINK: API_BASE_URL + '/api/auth/auth0',
+
+		NO_INTERNET_LOGO: '${env.NO_INTERNET_LOGO}',
+
+		SENTRY_DSN: '${env.SENTRY_DSN}',
+		SENTRY_TRACES_SAMPLE_RATE: '${env.SENTRY_TRACES_SAMPLE_RATE}',
+
+		POSTHOG_KEY: '${env.POSTHOG_KEY}',
+		POSTHOG_HOST: '${env.POSTHOG_HOST}',
+		POSTHOG_ENABLED: ${env.POSTHOG_ENABLED},
+		POSTHOG_FLUSH_INTERVAL: ${env.POSTHOG_FLUSH_INTERVAL},
+
+		HUBSTAFF_REDIRECT_URL: '${env.HUBSTAFF_REDIRECT_URL}',
+
+		IS_ELECTRON: IS_ELECTRON,
+		IS_INTEGRATED_DESKTOP: IS_INTEGRATED_DESKTOP,
+
+		GOOGLE_MAPS_API_KEY: '${env.GOOGLE_MAPS_API_KEY}',
+		GOOGLE_PLACE_AUTOCOMPLETE: ${env.GOOGLE_PLACE_AUTOCOMPLETE},
+
+		DEFAULT_LATITUDE: ${env.DEFAULT_LATITUDE},
+		DEFAULT_LONGITUDE: ${env.DEFAULT_LONGITUDE},
+		DEFAULT_CURRENCY: '${env.DEFAULT_CURRENCY}',
+		DEFAULT_COUNTRY: '${env.DEFAULT_COUNTRY}',
+
+		DEMO: ${env.DEMO},
+
+		DEMO_SUPER_ADMIN_EMAIL: '${env.DEMO_SUPER_ADMIN_EMAIL}',
+		DEMO_SUPER_ADMIN_PASSWORD: '${env.DEMO_SUPER_ADMIN_PASSWORD}',
+
+		DEMO_ADMIN_EMAIL: '${env.DEMO_ADMIN_EMAIL}',
+		DEMO_ADMIN_PASSWORD: '${env.DEMO_ADMIN_PASSWORD}',
+
+		DEMO_EMPLOYEE_EMAIL: '${env.DEMO_EMPLOYEE_EMAIL}',
+		DEMO_EMPLOYEE_PASSWORD: '${env.DEMO_EMPLOYEE_PASSWORD}',
+
+		CHATWOOT_SDK_TOKEN: '${env.CHATWOOT_SDK_TOKEN}',
+		CHAT_MESSAGE_GOOGLE_MAP: '${env.CHAT_MESSAGE_GOOGLE_MAP}',
+		GAUZY_CLOUD_APP: '${env.GAUZY_CLOUD_APP}',
+
+		FILE_PROVIDER: '${env.FILE_PROVIDER}',
+
+		JITSU_BROWSER_URL: '${env.JITSU_BROWSER_URL}',
+		JITSU_BROWSER_WRITE_KEY: '${env.JITSU_BROWSER_WRITE_KEY}',
+
+		GAUZY_GITHUB_APP_NAME: '${env.GAUZY_GITHUB_APP_NAME}',
+		GAUZY_GITHUB_CLIENT_ID: '${env.GAUZY_GITHUB_CLIENT_ID}',
+		GAUZY_GITHUB_REDIRECT_URL: '${env.GAUZY_GITHUB_REDIRECT_URL}',
+		GAUZY_GITHUB_POST_INSTALL_URL: '${env.GAUZY_GITHUB_POST_INSTALL_URL}',
+
+		PLATFORM_LOGO: '${env.PLATFORM_LOGO}',
+		GAUZY_DESKTOP_LOGO_512X512: '${env.GAUZY_DESKTOP_LOGO_512X512}',
+		PLATFORM_PRIVACY_URL: '${env.PLATFORM_PRIVACY_URL}',
+		PLATFORM_TOS_URL: '${env.PLATFORM_TOS_URL}',
+		PROJECT_REPO: '${env.PROJECT_REPO}',
+
+		DESKTOP_TIMER_APP_NAME: '${env.DESKTOP_TIMER_APP_NAME}',
+		DESKTOP_TIMER_APP_DESCRIPTION: '${env.DESKTOP_TIMER_APP_DESCRIPTION}',
+		DESKTOP_TIMER_APP_ID: '${env.DESKTOP_TIMER_APP_ID}',
+		DESKTOP_TIMER_APP_REPO_NAME: '${env.DESKTOP_TIMER_APP_REPO_NAME}',
+		DESKTOP_TIMER_APP_REPO_OWNER: '${env.DESKTOP_TIMER_APP_REPO_OWNER}',
+		DESKTOP_TIMER_APP_WELCOME_TITLE: '${env.DESKTOP_TIMER_APP_WELCOME_TITLE}',
+		DESKTOP_TIMER_APP_WELCOME_CONTENT: '${env.DESKTOP_TIMER_APP_WELCOME_CONTENT}',
+		DESKTOP_TIMER_APP_PROTOCOL: '${env.DESKTOP_TIMER_APP_PROTOCOL}',
+
+		DESKTOP_APP_NAME: '${env.DESKTOP_APP_NAME}',
+		DESKTOP_APP_DESCRIPTION: '${env.DESKTOP_APP_DESCRIPTION}',
+		DESKTOP_APP_ID: '${env.DESKTOP_APP_ID}',
+		DESKTOP_APP_REPO_NAME: '${env.DESKTOP_APP_REPO_NAME}',
+		DESKTOP_APP_REPO_OWNER: '${env.DESKTOP_APP_REPO_OWNER}',
+		DESKTOP_APP_WELCOME_TITLE: '${env.DESKTOP_APP_WELCOME_TITLE}',
+		DESKTOP_APP_WELCOME_CONTENT: '${env.DESKTOP_APP_WELCOME_CONTENT}',
+		DESKTOP_APP_PROTOCOL: '${env.DESKTOP_APP_PROTOCOL}',
+
+		DESKTOP_SERVER_APP_NAME: '${env.DESKTOP_SERVER_APP_NAME}',
+		DESKTOP_SERVER_APP_DESCRIPTION: '${env.DESKTOP_SERVER_APP_DESCRIPTION}',
+		DESKTOP_SERVER_APP_ID: '${env.DESKTOP_SERVER_APP_ID}',
+		DESKTOP_SERVER_APP_REPO_NAME: '${env.DESKTOP_SERVER_APP_REPO_NAME}',
+		DESKTOP_SERVER_APP_REPO_OWNER: '${env.DESKTOP_SERVER_APP_REPO_OWNER}',
+		DESKTOP_SERVER_APP_WELCOME_TITLE: '${env.DESKTOP_SERVER_APP_WELCOME_TITLE}',
+		DESKTOP_SERVER_APP_WELCOME_CONTENT: '${env.DESKTOP_SERVER_APP_WELCOME_CONTENT}',
+		DESKTOP_SERVER_APP_PROTOCOL: '${env.DESKTOP_SERVER_APP_PROTOCOL}',
+
+		DESKTOP_API_SERVER_APP_NAME: '${env.DESKTOP_API_SERVER_APP_NAME}',
+		DESKTOP_API_SERVER_APP_DESCRIPTION: '${env.DESKTOP_API_SERVER_APP_DESCRIPTION}',
+		DESKTOP_API_SERVER_APP_ID: '${env.DESKTOP_API_SERVER_APP_ID}',
+		DESKTOP_API_SERVER_APP_REPO_NAME: '${env.DESKTOP_API_SERVER_APP_REPO_NAME}',
+		DESKTOP_API_SERVER_APP_REPO_OWNER: '${env.DESKTOP_API_SERVER_APP_REPO_OWNER}',
+		DESKTOP_API_SERVER_APP_WELCOME_TITLE: '${env.DESKTOP_API_SERVER_APP_WELCOME_TITLE}',
+		DESKTOP_API_SERVER_APP_WELCOME_CONTENT: '${env.DESKTOP_API_SERVER_APP_WELCOME_CONTENT}',
+		DESKTOP_API_SERVER_APP_PROTOCOL: '${env.DESKTOP_API_SERVER_APP_PROTOCOL}',
+
+		AGENT_APP_NAME: '${env.AGENT_APP_NAME}',
+		AGENT_APP_DESCRIPTION: '${env.AGENT_APP_DESCRIPTION}',
+		AGENT_APP_ID: '${env.AGENT_APP_ID}',
+		AGENT_APP_REPO_NAME: '${env.AGENT_APP_REPO_NAME}',
+		AGENT_APP_REPO_OWNER: '${env.AGENT_APP_REPO_OWNER}',
+		AGENT_APP_WELCOME_TITLE: '${env.AGENT_APP_WELCOME_TITLE}',
+		AGENT_APP_WELCOME_CONTENT: '${env.AGENT_APP_WELCOME_CONTENT}',
+		AGENT_APP_PROTOCOL: '${env.AGENT_APP_PROTOCOL}',
+
+		REGISTER_URL: '${env.REGISTER_URL}',
+		FORGOT_PASSWORD_URL: '${env.FORGOT_PASSWORD_URL}',
+
+		I18N_FILES_URL: '${env.I18N_FILES_URL}'
+	};
+	`;
+} else {
+	envFileContent += `
+
+	let API_BASE_URL = 'DOCKER_API_BASE_URL';
+	let CLIENT_BASE_URL = 'DOCKER_CLIENT_BASE_URL';
+
+	let IS_ELECTRON = false;
+	let IS_INTEGRATED_DESKTOP = false;
+
+	// https://github.com/electron/electron/issues/2288#issuecomment-337858978
+	const userAgent = navigator.userAgent.toLowerCase();
+	if (userAgent.indexOf(' electron/') > -1) {
+		try {
+			const remote = window.require('@electron/remote');
+			const variableGlobal = remote.getGlobal('variableGlobal');
+			API_BASE_URL = variableGlobal.API_BASE_URL;
+			IS_ELECTRON = true;
+			IS_INTEGRATED_DESKTOP = variableGlobal.IS_INTEGRATED_DESKTOP
+		} catch(e) {
+			console.log(e);
+		}
+	}
+
+	export const environment: Environment =
+	{
+		production:  ${isProd},
+
+		version: '${safeAppVersion}',
+		commit: '${safeAppCommit}',
+
+		API_BASE_URL: API_BASE_URL,
+		CLIENT_BASE_URL: CLIENT_BASE_URL,
+		COOKIE_DOMAIN: 'DOCKER_COOKIE_DOMAIN',
+
+		PLATFORM_WEBSITE_URL: 'DOCKER_PLATFORM_WEBSITE_URL',
+		PLATFORM_WEBSITE_DOWNLOAD_URL: 'DOCKER_PLATFORM_WEBSITE_DOWNLOAD_URL',
+		DESKTOP_APP_DOWNLOAD_LINK_APPLE: 'DOCKER_DESKTOP_APP_DOWNLOAD_LINK_APPLE',
+		DESKTOP_APP_DOWNLOAD_LINK_WINDOWS: 'DOCKER_DESKTOP_APP_DOWNLOAD_LINK_WINDOWS',
+		DESKTOP_APP_DOWNLOAD_LINK_LINUX: 'DOCKER_DESKTOP_APP_DOWNLOAD_LINK_LINUX',
+		MOBILE_APP_DOWNLOAD_LINK: 'DOCKER_MOBILE_APP_DOWNLOAD_LINK',
+		EXTENSION_DOWNLOAD_LINK: 'DOCKER_EXTENSION_DOWNLOAD_LINK',
+
+		COMPANY_NAME: 'DOCKER_COMPANY_NAME',
+		COMPANY_LINK: 'DOCKER_COMPANY_LINK',
+		COMPANY_SITE_NAME: 'DOCKER_COMPANY_SITE_NAME',
+		COMPANY_SITE_LINK: 'DOCKER_COMPANY_SITE_LINK',
+		COMPANY_GITHUB_LINK: 'DOCKER_COMPANY_GITHUB_LINK',
+		COMPANY_GITLAB_LINK: 'DOCKER_COMPANY_GITLAB_LINK',
+		COMPANY_FACEBOOK_LINK: 'DOCKER_COMPANY_FACEBOOK_LINK',
+		COMPANY_TWITTER_LINK: 'DOCKER_COMPANY_TWITTER_LINK',
+		COMPANY_IN_LINK: 'DOCKER_COMPANY_IN_LINK',
+
+		GOOGLE_AUTH_LINK: API_BASE_URL + '/api/auth/google',
+		FACEBOOK_AUTH_LINK: API_BASE_URL + '/api/auth/facebook',
+		LINKEDIN_AUTH_LINK: API_BASE_URL + '/api/auth/linkedin',
+		GITHUB_AUTH_LINK: API_BASE_URL + '/api/auth/github',
+		TWITTER_AUTH_LINK: API_BASE_URL + '/api/auth/twitter',
+		MICROSOFT_AUTH_LINK: API_BASE_URL + '/api/auth/microsoft',
+		AUTH0_AUTH_LINK: API_BASE_URL + '/api/auth/auth0',
+
+		NO_INTERNET_LOGO: 'DOCKER_NO_INTERNET_LOGO',
+
+		SENTRY_DSN: 'DOCKER_SENTRY_DSN',
+		SENTRY_TRACES_SAMPLE_RATE: 'DOCKER_SENTRY_TRACES_SAMPLE_RATE',
+
+		POSTHOG_KEY: 'DOCKER_POSTHOG_KEY',
+		POSTHOG_HOST: 'DOCKER_POSTHOG_HOST',
+		// @ts-ignore
+		POSTHOG_ENABLED: String('DOCKER_POSTHOG_ENABLED').toLowerCase() === 'true',
+		// @ts-ignore
+		POSTHOG_FLUSH_INTERVAL: parseInt('DOCKER_POSTHOG_FLUSH_INTERVAL'),
+
+		HUBSTAFF_REDIRECT_URL: 'DOCKER_HUBSTAFF_REDIRECT_URL',
+
+		IS_ELECTRON: IS_ELECTRON,
+		IS_INTEGRATED_DESKTOP: IS_INTEGRATED_DESKTOP,
+
+		GOOGLE_MAPS_API_KEY: 'DOCKER_GOOGLE_MAPS_API_KEY',
+
+		// @ts-ignore
+		GOOGLE_PLACE_AUTOCOMPLETE: String('DOCKER_GOOGLE_PLACE_AUTOCOMPLETE').toLowerCase() === 'true',
+
+		DEFAULT_LATITUDE: ${env.DEFAULT_LATITUDE},
+		DEFAULT_LONGITUDE: ${env.DEFAULT_LONGITUDE},
+		DEFAULT_CURRENCY: 'DOCKER_DEFAULT_CURRENCY',
+		DEFAULT_COUNTRY: 'DOCKER_DEFAULT_COUNTRY',
+
+		// @ts-ignore
+		DEMO: String('DOCKER_DEMO').toLowerCase() === 'true',
+
+		DEMO_SUPER_ADMIN_EMAIL: '${env.DEMO_SUPER_ADMIN_EMAIL}',
+		DEMO_SUPER_ADMIN_PASSWORD: '${env.DEMO_SUPER_ADMIN_PASSWORD}',
+
+		DEMO_ADMIN_EMAIL: '${env.DEMO_ADMIN_EMAIL}',
+		DEMO_ADMIN_PASSWORD: '${env.DEMO_ADMIN_PASSWORD}',
+
+		DEMO_EMPLOYEE_EMAIL: '${env.DEMO_EMPLOYEE_EMAIL}',
+		DEMO_EMPLOYEE_PASSWORD: '${env.DEMO_EMPLOYEE_PASSWORD}',
+
+		CHATWOOT_SDK_TOKEN: 'DOCKER_CHATWOOT_SDK_TOKEN',
+		CHAT_MESSAGE_GOOGLE_MAP: 'DOCKER_CHAT_MESSAGE_GOOGLE_MAP',
+		GAUZY_CLOUD_APP: 'DOCKER_GAUZY_CLOUD_APP',
+
+		FILE_PROVIDER: 'DOCKER_FILE_PROVIDER',
+
+		JITSU_BROWSER_URL: 'DOCKER_JITSU_BROWSER_URL',
+		JITSU_BROWSER_WRITE_KEY: 'DOCKER_JITSU_BROWSER_WRITE_KEY',
+
+		GAUZY_GITHUB_APP_NAME: 'DOCKER_GAUZY_GITHUB_APP_NAME',
+		GAUZY_GITHUB_CLIENT_ID: 'DOCKER_GAUZY_GITHUB_CLIENT_ID',
+		GAUZY_GITHUB_REDIRECT_URL: 'DOCKER_GAUZY_GITHUB_REDIRECT_URL',
+		GAUZY_GITHUB_POST_INSTALL_URL: 'DOCKER_GAUZY_GITHUB_POST_INSTALL_URL',
+
+		PLATFORM_LOGO: 'DOCKER_PLATFORM_LOGO',
+		GAUZY_DESKTOP_LOGO_512X512: 'DOCKER_GAUZY_DESKTOP_LOGO_512X512',
+		PLATFORM_PRIVACY_URL: 'DOCKER_PLATFORM_PRIVACY_URL',
+		PLATFORM_TOS_URL: 'DOCKER_PLATFORM_TOS_URL',
+
+		PROJECT_REPO: 'DOCKER_PROJECT_REPO',
+
+		DESKTOP_TIMER_APP_NAME: '${env.DESKTOP_TIMER_APP_NAME}',
+		DESKTOP_TIMER_APP_DESCRIPTION: '${env.DESKTOP_TIMER_APP_DESCRIPTION}',
+		DESKTOP_TIMER_APP_ID: '${env.DESKTOP_TIMER_APP_ID}',
+		DESKTOP_TIMER_APP_REPO_NAME: '${env.DESKTOP_TIMER_APP_REPO_NAME}',
+		DESKTOP_TIMER_APP_REPO_OWNER: '${env.DESKTOP_TIMER_APP_REPO_OWNER}',
+		DESKTOP_TIMER_APP_WELCOME_TITLE: '${env.DESKTOP_TIMER_APP_WELCOME_TITLE}',
+		DESKTOP_TIMER_APP_WELCOME_CONTENT: '${env.DESKTOP_TIMER_APP_WELCOME_CONTENT}',
+		DESKTOP_TIMER_APP_PROTOCOL: '${env.DESKTOP_TIMER_APP_PROTOCOL}',
+
+		DESKTOP_APP_NAME: '${env.DESKTOP_APP_NAME}',
+		DESKTOP_APP_DESCRIPTION: '${env.DESKTOP_APP_DESCRIPTION}',
+		DESKTOP_APP_ID: '${env.DESKTOP_APP_ID}',
+		DESKTOP_APP_REPO_NAME: '${env.DESKTOP_APP_REPO_NAME}',
+		DESKTOP_APP_REPO_OWNER: '${env.DESKTOP_APP_REPO_OWNER}',
+		DESKTOP_APP_WELCOME_TITLE: '${env.DESKTOP_APP_WELCOME_TITLE}',
+		DESKTOP_APP_WELCOME_CONTENT: '${env.DESKTOP_APP_WELCOME_CONTENT}',
+		DESKTOP_APP_PROTOCOL: '${env.DESKTOP_APP_PROTOCOL}',
+
+		DESKTOP_SERVER_APP_NAME: '${env.DESKTOP_SERVER_APP_NAME}',
+		DESKTOP_SERVER_APP_DESCRIPTION: '${env.DESKTOP_SERVER_APP_DESCRIPTION}',
+		DESKTOP_SERVER_APP_ID: '${env.DESKTOP_SERVER_APP_ID}',
+		DESKTOP_SERVER_APP_REPO_NAME: '${env.DESKTOP_SERVER_APP_REPO_NAME}',
+		DESKTOP_SERVER_APP_REPO_OWNER: '${env.DESKTOP_SERVER_APP_REPO_OWNER}',
+		DESKTOP_SERVER_APP_WELCOME_TITLE: '${env.DESKTOP_SERVER_APP_WELCOME_TITLE}',
+		DESKTOP_SERVER_APP_WELCOME_CONTENT: '${env.DESKTOP_SERVER_APP_WELCOME_CONTENT}',
+		DESKTOP_SERVER_APP_PROTOCOL: '${env.DESKTOP_SERVER_APP_PROTOCOL}',
+
+		DESKTOP_API_SERVER_APP_NAME: '${env.DESKTOP_API_SERVER_APP_NAME}',
+		DESKTOP_API_SERVER_APP_DESCRIPTION: '${env.DESKTOP_API_SERVER_APP_DESCRIPTION}',
+		DESKTOP_API_SERVER_APP_ID: '${env.DESKTOP_API_SERVER_APP_ID}',
+		DESKTOP_API_SERVER_APP_REPO_NAME: '${env.DESKTOP_API_SERVER_APP_REPO_NAME}',
+		DESKTOP_API_SERVER_APP_REPO_OWNER: '${env.DESKTOP_API_SERVER_APP_REPO_OWNER}',
+		DESKTOP_API_SERVER_APP_WELCOME_TITLE: '${env.DESKTOP_API_SERVER_APP_WELCOME_TITLE}',
+		DESKTOP_API_SERVER_APP_WELCOME_CONTENT: '${env.DESKTOP_API_SERVER_APP_WELCOME_CONTENT}',
+		DESKTOP_API_SERVER_APP_PROTOCOL: '${env.DESKTOP_API_SERVER_APP_PROTOCOL}',
+
+		AGENT_APP_NAME: '${env.AGENT_APP_NAME}',
+		AGENT_APP_DESCRIPTION: '${env.AGENT_APP_DESCRIPTION}',
+		AGENT_APP_ID: '${env.AGENT_APP_ID}',
+		AGENT_APP_REPO_NAME: '${env.AGENT_APP_REPO_NAME}',
+		AGENT_APP_REPO_OWNER: '${env.AGENT_APP_REPO_OWNER}',
+		AGENT_APP_WELCOME_TITLE: '${env.AGENT_APP_WELCOME_TITLE}',
+		AGENT_APP_WELCOME_CONTENT: '${env.AGENT_APP_WELCOME_CONTENT}',
+		AGENT_APP_PROTOCOL: '${env.AGENT_APP_PROTOCOL}',
+
+		REGISTER_URL: '${env.REGISTER_URL}',
+		FORGOT_PASSWORD_URL: '${env.FORGOT_PASSWORD_URL}',
+
+		I18N_FILES_URL: 'DOCKER_I18N_FILES_URL'
+	};
+`;
+}
+
+if (!isProd) {
+	envFileContent += `
+
+	// For easier debugging in development mode, you can import the following file
+	// to ignore zone related error stack frames such as 'zone.run', 'zoneDelegate.invokeTask'.
+	import 'zone.js';  // Included with Angular CLI.
+
+	`;
+}
+
+// we always want first to remove old generated files (one of them is not needed for current build)
+// Use path relative to script location to ensure correct path regardless of working directory
+const scriptDir = __dirname;
+const workspaceRoot = path.resolve(scriptDir, '../');
+const environmentsFolder = path.resolve(workspaceRoot, 'packages/ui-config/src/lib/environments');
+
+try {
+	unlinkSync(path.join(environmentsFolder, 'environment.ts'));
+} catch {}
+try {
+	unlinkSync(path.join(environmentsFolder, 'environment.prod.ts'));
+} catch {}
+
+const envFileDest: string = isProd ? 'environment.prod.ts' : 'environment.ts';
+const envFileDestOther: string = !isProd ? 'environment.prod.ts' : 'environment.ts';
+
+console.log(`Generating Angular environment file: ${envFileDest}`);
+console.log(`Generating Second Angular environment file: ${envFileDestOther}`);
+
+// Ensure the environments folder exists
+if (!existsSync(environmentsFolder)) {
+	mkdirSync(environmentsFolder, { recursive: true });
+	console.log(`Created environments folder: ${environmentsFolder}`);
+}
+
+// Paths to environment files
+const envFilePath = path.join(environmentsFolder, envFileDest);
+const envFileOtherPath = path.join(environmentsFolder, envFileDestOther);
+
+writeFile(envFilePath, envFileContent, (error) => {
+	if (error) {
+		console.error(`Error writing environment file: ${error}`);
+	} else {
+		// Paths to environment files
+		const envFilePath = path.resolve(`./packages/ui-config/src/lib/environments/${envFileDest}`);
+		console.log(`Generated Angular environment file: ${envFilePath}`);
+	}
+});
+
+// Generate full content for the other file, but with the production flag toggled
+// This ensures TypeScript sees the complete Environment interface in both files
+let envFileContentOther = envFileContent.replace(`production:  ${isProd},`, `production:  ${!isProd},`);
+
+writeFile(envFileOtherPath, envFileContentOther, (error) => {
+	if (error) {
+		console.error(`Error writing environment file: ${error}`);
+	} else {
+		const envFileOtherPath = path.resolve(`./packages/ui-config/src/lib/environments/${envFileDestOther}`);
+		console.log(`Generated Second Angular environment file: ${envFileOtherPath}`);
+	}
+});

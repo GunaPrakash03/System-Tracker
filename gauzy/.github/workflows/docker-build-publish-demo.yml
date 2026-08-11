@@ -1,0 +1,383 @@
+name: Build and Publish Docker Images Demo
+
+on:
+  # Build + publish AFTER the "Release Demo" workflow bumps the version and creates the tag/release,
+  # so images are tagged with that exact release version (v111.2.10, ...) instead of :latest.
+  workflow_run:
+    workflows: ["Release Demo"]
+    types: [completed]
+
+concurrency:
+  # One group PER WORKFLOW, not one shared across all six non-prod image builds.
+  #
+  # The shared `gauzy-docker-build` group did not queue them — it starved them. GitHub
+  # keeps exactly ONE pending run per group, so every newly queued run cancels the run
+  # already waiting, whatever workflow it came from. A single push to develop fires three
+  # of these, a push to stage another three; five of every six were cancelled before they
+  # started. Environments then silently kept serving their previous image, which is how
+  # stage sat on an image five PRs old while its branch looked merged and green.
+  #
+  # Keyed by workflow so the useful part survives: a newer push still supersedes this
+  # workflow's own older pending run, and `cancel-in-progress: false` still never kills a
+  # build that is already running. What it no longer does is let an unrelated image build
+  # cancel this one.
+  #
+  # The cost is that these can once again overlap. That was the original worry — ~6-8
+  # parallel installs against one registry VIP — but an image that never builds is a worse
+  # failure than a slow one, and this is the only lever Actions offers: there is no way to
+  # ask for a queue deeper than one. The prod (master) workflows are still not in any
+  # shared group.
+  group: gauzy-docker-build-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  gauzy-api:
+    runs-on: ${{ vars.RUNNER_LINUX_X64_8 || 'ubuntu-latest' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 300
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: relver
+        run: |
+          VERSION=$(git tag --points-at HEAD | grep -E '^v[0-9]' | sort -V | tail -1)
+          if [ -z "$VERSION" ]; then VERSION=$(git describe --tags --abbrev=0); fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Log in to GHCR BEFORE the build so buildx can PUSH the mode=max layer cache to the
+      # :buildcache tag (cache-to needs registry auth at build time).
+      - name: Login to GitHub Container Registry (build cache)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./.deploy/api/Dockerfile
+          load: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/ever-co/gauzy-api-demo:latest
+            ghcr.io/ever-co/gauzy-api-demo:${{ steps.relver.outputs.version }}
+            everco/gauzy-api-demo:latest
+            registry.digitalocean.com/ever/gauzy-api-demo:latest
+          # mode=max caches ALL stages (incl. the multi-minute yarn-install layers) to a dedicated
+          # :buildcache tag; every ephemeral runner restores it → no more fully-cold rebuilds.
+          # Needs the default docker-container buildx driver — the classic `docker` driver only
+          # supports inline (final-stage) cache, which is why the yarn-install stages were cold.
+          cache-from: |
+            type=registry,ref=ghcr.io/ever-co/gauzy-api-demo:buildcache
+            type=registry,ref=ghcr.io/ever-co/gauzy-api-demo:latest
+          cache-to: type=registry,ref=ghcr.io/ever-co/gauzy-api-demo:buildcache,mode=min
+          build-args: |
+            NODE_ENV=development
+            VERDACCIO_REGISTRY=${{ vars.VERDACCIO_REGISTRY }}
+            DEMO=true
+            NX_BRANCH=${{ github.ref_name }}
+            GAUZY_APP_VERSION=${{ steps.relver.outputs.version }}
+            GAUZY_APP_COMMIT=${{ github.event.workflow_run.head_sha }}
+          # VERDACCIO_TOKEN / NX_CLOUD_ACCESS_TOKEN are BuildKit build secrets (mounted
+          # per-RUN, never embedded in image layers) — see the Dockerfile header.
+          secrets: |
+            VERDACCIO_TOKEN=${{ secrets.VERDACCIO_TOKEN }}
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+      - name: Docker images list
+        run: |
+          sudo docker image list
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub Registry
+        run: |
+          docker push everco/gauzy-api-demo:latest
+
+      - name: Install doctl
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry with short-lived credentials
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Push to DigitalOcean Registry
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: |
+          docker push registry.digitalocean.com/ever/gauzy-api-demo:latest
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to Github Registry
+        run: |
+          docker push ghcr.io/ever-co/gauzy-api-demo:latest
+          docker push ghcr.io/ever-co/gauzy-api-demo:${{ steps.relver.outputs.version }}
+
+    #   - name: Login to CW Container Registry
+    #    uses: docker/login-action@v4
+    #    with:
+    #      registry: ${{ secrets.CW_DOCKER_REGISTRY }}
+    #      username: ${{ secrets.CW_DOCKER_USER }}
+    #      password: ${{ secrets.CW_DOCKER_USER_PASSWORD }}
+
+    #   - name: Push to CW Registry
+    #    run: |
+    #      docker push ${{ secrets.CW_DOCKER_REGISTRY }}/ever-co/gauzy-api-demo:latest
+
+  gauzy-webapp:
+    runs-on: ${{ vars.RUNNER_LINUX_X64_8 || 'ubuntu-latest' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 300
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: relver
+        run: |
+          VERSION=$(git tag --points-at HEAD | grep -E '^v[0-9]' | sort -V | tail -1)
+          if [ -z "$VERSION" ]; then VERSION=$(git describe --tags --abbrev=0); fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Log in to GHCR BEFORE the build so buildx can PUSH the mode=max layer cache to the
+      # :buildcache tag (cache-to needs registry auth at build time).
+      - name: Login to GitHub Container Registry (build cache)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./.deploy/webapp/Dockerfile
+          load: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/ever-co/gauzy-webapp-demo:latest
+            ghcr.io/ever-co/gauzy-webapp-demo:${{ steps.relver.outputs.version }}
+            everco/gauzy-webapp-demo:latest
+            registry.digitalocean.com/ever/gauzy-webapp-demo:latest
+          # mode=max caches ALL stages (incl. the multi-minute yarn-install layers) to a dedicated
+          # :buildcache tag; every ephemeral runner restores it → no more fully-cold rebuilds.
+          # Needs the default docker-container buildx driver — the classic `docker` driver only
+          # supports inline (final-stage) cache, which is why the yarn-install stages were cold.
+          cache-from: |
+            type=registry,ref=ghcr.io/ever-co/gauzy-webapp-demo:buildcache
+            type=registry,ref=ghcr.io/ever-co/gauzy-webapp-demo:latest
+          cache-to: type=registry,ref=ghcr.io/ever-co/gauzy-webapp-demo:buildcache,mode=min
+          build-args: |
+            NODE_ENV=development
+            VERDACCIO_REGISTRY=${{ vars.VERDACCIO_REGISTRY }}
+            DEMO=true
+            NX_BRANCH=${{ github.ref_name }}
+            GAUZY_APP_VERSION=${{ steps.relver.outputs.version }}
+            GAUZY_APP_COMMIT=${{ github.event.workflow_run.head_sha }}
+          # VERDACCIO_TOKEN / NX_CLOUD_ACCESS_TOKEN are BuildKit build secrets (mounted
+          # per-RUN, never embedded in image layers) — see the Dockerfile header.
+          secrets: |
+            VERDACCIO_TOKEN=${{ secrets.VERDACCIO_TOKEN }}
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+      - name: Docker images list
+        run: |
+          sudo docker image list
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub Registry
+        run: |
+          docker push everco/gauzy-webapp-demo:latest
+
+      - name: Install doctl
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry with short-lived credentials
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Push to DigitalOcean Registry
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: |
+          docker push registry.digitalocean.com/ever/gauzy-webapp-demo:latest
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to Github Registry
+        run: |
+          docker push ghcr.io/ever-co/gauzy-webapp-demo:latest
+          docker push ghcr.io/ever-co/gauzy-webapp-demo:${{ steps.relver.outputs.version }}
+
+      # - name: Login to CW Container Registry
+      #  uses: docker/login-action@v4
+      #  with:
+      #    registry: ${{ secrets.CW_DOCKER_REGISTRY }}
+      #    username: ${{ secrets.CW_DOCKER_USER }}
+      #    password: ${{ secrets.CW_DOCKER_USER_PASSWORD }}
+
+      # - name: Push to CW Registry
+      #  run: |
+      #    docker push ${{ secrets.CW_DOCKER_REGISTRY }}/ever-co/gauzy-webapp-demo:latest
+
+  gauzy-worker:
+    runs-on: ${{ vars.RUNNER_LINUX_X64_8 || 'ubuntu-latest' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 300
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: relver
+        run: |
+          VERSION=$(git tag --points-at HEAD | grep -E '^v[0-9]' | sort -V | tail -1)
+          if [ -z "$VERSION" ]; then VERSION=$(git describe --tags --abbrev=0); fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Log in to GHCR BEFORE the build so buildx can PUSH the mode=max layer cache to the
+      # :buildcache tag (cache-to needs registry auth at build time).
+      - name: Login to GitHub Container Registry (build cache)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./.deploy/worker/Dockerfile
+          load: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/ever-co/gauzy-worker-demo:latest
+            ghcr.io/ever-co/gauzy-worker-demo:${{ steps.relver.outputs.version }}
+            everco/gauzy-worker-demo:latest
+            registry.digitalocean.com/ever/gauzy-worker-demo:latest
+          # mode=max caches ALL stages (incl. the multi-minute yarn-install layers) to a dedicated
+          # :buildcache tag; every ephemeral runner restores it → no more fully-cold rebuilds.
+          # Needs the default docker-container buildx driver — the classic `docker` driver only
+          # supports inline (final-stage) cache, which is why the yarn-install stages were cold.
+          cache-from: |
+            type=registry,ref=ghcr.io/ever-co/gauzy-worker-demo:buildcache
+            type=registry,ref=ghcr.io/ever-co/gauzy-worker-demo:latest
+          cache-to: type=registry,ref=ghcr.io/ever-co/gauzy-worker-demo:buildcache,mode=min
+          build-args: |
+            NODE_ENV=development
+            VERDACCIO_REGISTRY=${{ vars.VERDACCIO_REGISTRY }}
+            DEMO=true
+            NX_BRANCH=${{ github.ref_name }}
+            GAUZY_APP_VERSION=${{ steps.relver.outputs.version }}
+            GAUZY_APP_COMMIT=${{ github.event.workflow_run.head_sha }}
+          # VERDACCIO_TOKEN / NX_CLOUD_ACCESS_TOKEN are BuildKit build secrets (mounted
+          # per-RUN, never embedded in image layers) — see the Dockerfile header.
+          # WORKER_* build-args were dropped: they never reached the image (the global
+          # ARGs were not re-declared in the production stage, so the image always baked
+          # the literal defaults) — k8s manifests set WORKER_* at runtime.
+          secrets: |
+            VERDACCIO_TOKEN=${{ secrets.VERDACCIO_TOKEN }}
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+      - name: Docker images list
+        run: |
+          sudo docker image list
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub Registry
+        run: |
+          docker push everco/gauzy-worker-demo:latest
+
+      - name: Install doctl
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry with short-lived credentials
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Push to DigitalOcean Registry
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: |
+          docker push registry.digitalocean.com/ever/gauzy-worker-demo:latest
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to Github Registry
+        run: |
+          docker push ghcr.io/ever-co/gauzy-worker-demo:latest
+          docker push ghcr.io/ever-co/gauzy-worker-demo:${{ steps.relver.outputs.version }}
+
+    #   - name: Login to CW Container Registry
+    #    uses: docker/login-action@v4
+    #    with:
+    #      registry: ${{ secrets.CW_DOCKER_REGISTRY }}
+    #      username: ${{ secrets.CW_DOCKER_USER }}
+    #      password: ${{ secrets.CW_DOCKER_USER_PASSWORD }}
+
+    #   - name: Push to CW Registry
+    #    run: |
+    #      docker push ${{ secrets.CW_DOCKER_REGISTRY }}/ever-co/gauzy-worker-demo:latest

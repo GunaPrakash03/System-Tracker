@@ -1,0 +1,469 @@
+import { Injectable, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
+import { Request } from 'express';
+import { HELP_CENTER_ARTICLE_MAX_BINARY_BYTES } from '@gauzy/constants';
+import {
+	Brackets,
+	FindOptionsWhere,
+	In,
+	SelectQueryBuilder,
+	WhereExpressionBuilder,
+	DeepPartial,
+	DeleteResult
+} from 'typeorm';
+import {
+	MultiORMEnum,
+	parseFindOptionsRelations,
+	parseFindOptionsSelect,
+	RequestContext,
+	TenantAwareCrudService,
+	BaseQueryDTO,
+	prepareSQLQuery as p,
+	LIKE_OPERATOR
+} from '@gauzy/core';
+import { isNotEmpty } from '@gauzy/utils';
+import {
+	ID,
+	IHelpCenterArticle,
+	IHelpCenterArticleUpdate,
+	IHelpCenterArticleVersion,
+	IHelpCenterArticleFiltering,
+	IHelpCenterArticleAdvancedFilter,
+	IPagination
+} from '@gauzy/contracts';
+import { HelpCenterArticle } from './help-center-article.entity';
+import { HelpCenterArticleVersion } from './help-center-article-version.entity';
+import { HelpCenterArticleVersionService } from './help-center-article-version.service';
+import { TypeOrmHelpCenterArticleRepository } from './repository/type-orm-help-center-article.repository';
+import { MikroOrmHelpCenterArticleRepository } from './repository/mikro-orm-help-center-article.repository';
+
+@Injectable()
+export class HelpCenterArticleService extends TenantAwareCrudService<HelpCenterArticle> {
+	constructor(
+		readonly typeOrmHelpCenterArticleRepository: TypeOrmHelpCenterArticleRepository,
+		readonly mikroOrmHelpCenterArticleRepository: MikroOrmHelpCenterArticleRepository,
+		private readonly versionService: HelpCenterArticleVersionService
+	) {
+		super(typeOrmHelpCenterArticleRepository, mikroOrmHelpCenterArticleRepository);
+	}
+
+	async getArticlesByCategoryId(categoryId: ID): Promise<HelpCenterArticle[]> {
+		return await this.find({
+			where: { categoryId } as FindOptionsWhere<HelpCenterArticle>
+		});
+	}
+
+	/**
+	 * Get articles by project ID with pagination and advanced filtering.
+	 *
+	 * @param projectId - The project ID to filter by.
+	 * @param options - The pagination and filtering options.
+	 * @returns A promise that resolves with the paginated articles and total count.
+	 */
+	async getArticlesByProjectId(
+		projectId: ID,
+		options: BaseQueryDTO<HelpCenterArticle> & IHelpCenterArticleFiltering
+	): Promise<IPagination<IHelpCenterArticle>> {
+		try {
+			const { where, filters } = options;
+			const { organizationId } = where;
+			const tenantId = RequestContext.currentTenantId() ?? where.tenantId;
+
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM: {
+					// MikroORM: Use Knex for junction-table subquery filtering
+					const knex = (this.mikroOrmRepository as any).getKnex();
+
+					// Build base query on the knowledge_base_article table
+					let qb = knex('knowledge_base_article as kba')
+						.whereIn('kba.id', function () {
+							this.select('knowledgeBaseArticleId')
+								.from('knowledge_base_article_project')
+								.where('organizationProjectId', projectId);
+						})
+						.andWhere('kba.organizationId', organizationId)
+						.andWhere('kba.tenantId', tenantId);
+
+					// Apply additional where filters
+					if (isNotEmpty(where)) {
+						const { name, draft, privacy, isLocked, categoryId } = where;
+						if (isNotEmpty(name)) qb = qb.andWhere('kba.name', 'ILIKE', `%${name}%`);
+						if (draft !== undefined) qb = qb.andWhere('kba.draft', draft);
+						if (privacy !== undefined) qb = qb.andWhere('kba.privacy', privacy);
+						if (isLocked !== undefined) qb = qb.andWhere('kba.isLocked', isLocked);
+						if (isNotEmpty(categoryId)) qb = qb.andWhere('kba.categoryId', categoryId);
+					}
+
+					// Apply advanced filters
+					if (filters) {
+						const {
+							ids = [],
+							names = [],
+							categories = [],
+							ownedBy = [],
+							draft: advDraft,
+							privacy: advPrivacy,
+							isLocked: advIsLocked
+						} = filters;
+						if (ids.length) qb = qb.whereIn('kba.id', ids);
+						if (names.length) qb = qb.whereIn('kba.name', names);
+						if (categories.length) qb = qb.whereIn('kba.categoryId', categories);
+						if (ownedBy.length) qb = qb.whereIn('kba.ownedById', ownedBy);
+						if (advDraft !== undefined) qb = qb.andWhere('kba.draft', advDraft);
+						if (advPrivacy !== undefined) qb = qb.andWhere('kba.privacy', advPrivacy);
+						if (advIsLocked !== undefined) qb = qb.andWhere('kba.isLocked', advIsLocked);
+					}
+
+					// Apply ordering
+					if (options.order) {
+						for (const [key, direction] of Object.entries(options.order)) {
+							qb = qb.orderBy(`kba.${key}`, direction as string);
+						}
+					}
+
+					// Count total before applying pagination
+					const countResult = await qb.clone().clearSelect().clearOrder().count('* as count').first();
+					const total = parseInt(countResult?.count ?? '0', 10);
+
+					// Apply pagination
+					if (options.take) qb = qb.limit(options.take);
+					if (options.skip) qb = qb.offset(options.skip);
+
+					const rawItems = await qb.select('kba.*');
+
+					// Map raw results to entities
+					const items = rawItems.map((row: any) => this.mikroOrmRepository.map(row));
+					return { items, total };
+				}
+				case MultiORMEnum.TypeORM:
+				default: {
+					// TypeORM: Original createQueryBuilder implementation
+					const query = this.typeOrmRepository.createQueryBuilder(this.tableName);
+					query.leftJoin(`${query.alias}.projects`, 'projects');
+
+					// Apply find options if provided
+					if (isNotEmpty(options)) {
+						query.setFindOptions({
+							...(options.select && { select: parseFindOptionsSelect(options.select) }),
+							...(options.relations && { relations: parseFindOptionsRelations(options.relations) }),
+							...(options.order && { order: options.order }),
+							...(options.take && { take: options.take }),
+							...(options.skip && { skip: options.skip })
+						});
+					}
+
+					// Apply advanced filters
+					if (filters) {
+						const advancedWhere = this.buildAdvancedWhereCondition(filters, where);
+						query.setFindOptions({ where: advancedWhere });
+					}
+
+					// Filter by knowledge_base_article_project with a sub query
+					query.andWhere((qb: SelectQueryBuilder<HelpCenterArticle>) => {
+						const subQuery = qb
+							.subQuery()
+							.select(p('"kbap"."knowledgeBaseArticleId"'))
+							.from(p('knowledge_base_article_project'), 'kbap')
+							.andWhere(p('"kbap"."organizationProjectId" = :projectId'), { projectId });
+
+						return (
+							p(`"knowledge_base_article_projects"."knowledgeBaseArticleId" IN `) +
+							subQuery.distinct(true).getQuery()
+						);
+					});
+
+					// Add organization and tenant filters
+					query.andWhere(
+						new Brackets((qb: WhereExpressionBuilder) => {
+							qb.andWhere(p(`"${query.alias}"."organizationId" = :organizationId`), { organizationId });
+							qb.andWhere(p(`"${query.alias}"."tenantId" = :tenantId`), { tenantId });
+						})
+					);
+
+					// Add additional filters (draft, privacy, names, etc.)
+					query.andWhere(
+						new Brackets((qb: WhereExpressionBuilder) => {
+							if (isNotEmpty(where)) {
+								const { name, draft, privacy, isLocked, categoryId } = where;
+
+								if (isNotEmpty(name)) {
+									qb.andWhere(p(`"${query.alias}"."name" ${LIKE_OPERATOR} :name`), {
+										name: `%${name}%`
+									});
+								}
+								if (draft !== undefined) {
+									qb.andWhere(p(`"${query.alias}"."draft" = :draft`), { draft });
+								}
+								if (privacy !== undefined) {
+									qb.andWhere(p(`"${query.alias}"."privacy" = :privacy`), { privacy });
+								}
+								if (isLocked !== undefined) {
+									qb.andWhere(p(`"${query.alias}"."isLocked" = :isLocked`), { isLocked });
+								}
+								if (isNotEmpty(categoryId)) {
+									qb.andWhere(p(`"${query.alias}"."categoryId" = :categoryId`), { categoryId });
+								}
+							}
+						})
+					);
+
+					const [items, total] = await query.getManyAndCount();
+					return { items, total };
+				}
+			}
+		} catch (error) {
+			throw new BadRequestException(error);
+		}
+	}
+
+	/**
+	 * Delete articles by IDs.
+	 */
+	async deleteBulkByArticleIds(ids: ID[]): Promise<DeleteResult | never[]> {
+		if (isNotEmpty(ids)) {
+			return await this.delete({ id: In(ids) } as FindOptionsWhere<HelpCenterArticle>);
+		}
+		return [];
+	}
+
+	/**
+	 * Update an article by ID.
+	 */
+	public async updateArticleById(id: ID, input: IHelpCenterArticleUpdate): Promise<void> {
+		await super.update(id, input);
+	}
+
+	/**
+	 * Update an article with automatic version snapshot.
+	 * Creates a version snapshot of the current state before applying the update.
+	 *
+	 * Note: This operation is NON-ATOMIC. If the update fails after version creation,
+	 * an orphan version record may remain. This data-integrity risk is tracked
+	 * under issue ID: GAU-9421.
+	 *
+	 * @param id - Article ID
+	 * @param input - Partial update data (any field including isLocked, archivedAt, privacy, etc.)
+	 * @param ownedById - Employee ID making the change
+	 */
+	public async updateWithVersioning(
+		id: ID,
+		input: IHelpCenterArticleUpdate,
+		ownedById?: ID
+	): Promise<{ article: IHelpCenterArticle; version: IHelpCenterArticleVersion }> {
+		// 1. Get current article state
+		const { record: currentArticle } = await this.findOneOrFailByIdString(id);
+
+		// 2. Create version snapshot of current state (before update) — include binary
+		const versionInput: DeepPartial<HelpCenterArticleVersion> = {
+			articleId: id,
+			ownedById,
+			descriptionHtml: currentArticle.descriptionHtml,
+			descriptionJson: currentArticle.descriptionJson,
+			descriptionBinary: currentArticle.descriptionBinary,
+			lastSavedAt: new Date()
+		};
+		const version = await this.versionService.create(versionInput);
+
+		// 3. Apply update
+		await super.update(id, input);
+
+		// 4. Return updated article and version
+		const { record: updatedArticle } = await this.findOneOrFailByIdString(id);
+		return { article: updatedArticle, version };
+	}
+
+	/**
+	 * Get the raw binary description of an article as a Buffer.
+	 *
+	 * Uses QueryBuilder directly to avoid TypeORM DISTINCT subquery issues
+	 * when `select: { descriptionBinary: true }` omits the 'id' column.
+	 * Scoped to the current tenant to prevent cross-tenant data access.
+	 *
+	 * @returns Buffer if binary exists, null otherwise
+	 */
+	public async getDescriptionBinary(id: ID): Promise<Buffer | null> {
+		const tenantId = RequestContext.currentTenantId();
+		const qb = this.typeOrmHelpCenterArticleRepository
+			.createQueryBuilder('article')
+			.select(['article.id', 'article.descriptionBinary'])
+			.where('article.id = :id', { id });
+
+		if (tenantId) {
+			qb.andWhere('article.tenantId = :tenantId', { tenantId });
+		}
+
+		const article = await qb.getOne();
+		return article?.descriptionBinary ? Buffer.from(article.descriptionBinary) : null;
+	}
+
+	/**
+	 * Atomic update of description fields using QueryBuilder directly.
+	 *
+	 * This bypasses the CrudService.update() → TypeORM Repository.update() chain
+	 * because TypeORM's QueryDeepPartialEntity typing silently drops Buffer values
+	 * for entity fields typed as Uint8Array, preventing binary data from being persisted
+	 * to PostgreSQL bytea columns.
+	 *
+	 * Scoped to the current tenant to prevent cross-tenant data modification.
+	 *
+	 * @param id - Article ID
+	 * @param fields - Object with descriptionBinary (Buffer | null to clear), descriptionHtml, descriptionJson
+	 */
+	public async updateDescriptionFields(
+		id: ID,
+		fields: { descriptionBinary?: Buffer | null; descriptionHtml?: string; descriptionJson?: string }
+	): Promise<void> {
+		const setClauses: Record<string, any> = {};
+
+		if (fields.descriptionBinary !== undefined) {
+			setClauses.descriptionBinary = fields.descriptionBinary;
+		}
+		if (fields.descriptionHtml !== undefined) {
+			setClauses.descriptionHtml = fields.descriptionHtml;
+		}
+		if (fields.descriptionJson !== undefined) {
+			setClauses.descriptionJson = fields.descriptionJson;
+		}
+
+		if (Object.keys(setClauses).length === 0) {
+			return;
+		}
+
+		const tenantId = RequestContext.currentTenantId();
+		const qb = this.typeOrmHelpCenterArticleRepository
+			.createQueryBuilder()
+			.update()
+			.set(setClauses)
+			.where('id = :id', { id });
+
+		if (tenantId) {
+			qb.andWhere('"tenantId" = :tenantId', { tenantId });
+		}
+
+		await qb.execute();
+	}
+
+	/**
+	 * Duplicate an article.
+	 */
+	public async duplicate(id: ID): Promise<HelpCenterArticle> {
+		const ownedById = RequestContext.currentEmployeeId();
+
+		// Load the source with its M2M relations so we can copy them
+		const { record: source } = await this.findOneOrFailByIdString(id, {
+			relations: { projects: true, tags: true } as any
+		});
+
+		const copy: DeepPartial<HelpCenterArticle> = {
+			name: `${source.name} (Copy)`,
+			description: source.description,
+			data: source.data,
+			draft: source.draft,
+			privacy: source.privacy,
+			index: source.index,
+			descriptionHtml: source.descriptionHtml,
+			descriptionJson: source.descriptionJson,
+			descriptionBinary: null,
+			isLocked: false,
+			color: source.color,
+			categoryId: source.categoryId,
+			parentId: source.parentId,
+			ownedById: ownedById ?? source.ownedById,
+			organizationId: source.organizationId,
+			externalId: null,
+			projects: source.projects ?? [],
+			tags: source.tags ?? []
+		};
+
+		return await this.create(copy);
+	}
+
+	/**
+	 * Constructs advanced `where` conditions for filtering articles based on the provided filters and existing conditions.
+	 *
+	 * @private
+	 * @param {IHelpCenterArticleAdvancedFilter} [filters] - Advanced filtering criteria for articles.
+	 * @param {FindOptionsWhere<HelpCenterArticle>} [where] - Existing `where` conditions to be merged with the filters.
+	 * @returns {FindOptionsWhere<HelpCenterArticle>} A `where` condition object to be used in database queries.
+	 */
+	private buildAdvancedWhereCondition(
+		filters?: IHelpCenterArticleAdvancedFilter,
+		where: FindOptionsWhere<HelpCenterArticle> = {}
+	): FindOptionsWhere<HelpCenterArticle> {
+		const {
+			ids = [],
+			names = [],
+			tags = [],
+			projects = [],
+			categories = [],
+			authors = [],
+			ownedBy = [],
+			draft,
+			privacy,
+			isLocked
+		} = filters;
+
+		return {
+			...(ids.length && !where.id ? { id: In(ids) } : {}),
+			...(names.length && !where.name ? { name: In(names) } : {}),
+			...(tags.length && !where.tags ? { tags: { id: In(tags) } } : {}),
+			...(projects.length && !where.projects ? { projects: { id: In(projects) } } : {}),
+			...(categories.length && !where.categoryId ? { categoryId: In(categories) } : {}),
+			...(authors.length && !where.authors ? { authors: { employeeId: In(authors) } } : {}),
+			...(ownedBy.length && !where.ownedById ? { ownedById: In(ownedBy) } : {}),
+			...(draft !== undefined && where.draft === undefined ? { draft } : {}),
+			...(privacy !== undefined && where.privacy === undefined ? { privacy } : {}),
+			...(isLocked !== undefined && where.isLocked === undefined ? { isLocked } : {})
+		};
+	}
+
+	/**
+	 * Read and validate a raw binary stream from an HTTP request.
+	 * Rejects payloads that exceed HELP_CENTER_ARTICLE_MAX_BINARY_BYTES via:
+	 *   1. A fast Content-Length pre-check (before any data is buffered).
+	 *   2. A byte counter during streaming (catches chunked / lying clients).
+	 *
+	 * @param req - The Express request carrying the raw octet-stream body.
+	 * @returns The fully buffered binary payload as a Buffer.
+	 */
+	public async readBinaryStream(req: Request): Promise<Buffer> {
+		// 1. Fast pre-check — only when the header is actually present to avoid masking its absence.
+		const rawContentLength = req.headers['content-length'];
+		if (rawContentLength !== undefined) {
+			const contentLength = parseInt(rawContentLength, 10);
+			if (!isNaN(contentLength) && contentLength > HELP_CENTER_ARTICLE_MAX_BINARY_BYTES) {
+				throw new PayloadTooLargeException(
+					`Payload exceeds the maximum allowed size of ${HELP_CENTER_ARTICLE_MAX_BINARY_BYTES} bytes.`
+				);
+			}
+		}
+
+		// 2. Buffer the stream, counting bytes to catch chunked or lying clients.
+		let chunks: Buffer[] = [];
+		let bytesReceived = 0;
+		await new Promise<void>((resolve, reject) => {
+			(req as any).on('data', (chunk: Buffer) => {
+				bytesReceived += chunk.length;
+				if (bytesReceived > HELP_CENTER_ARTICLE_MAX_BINARY_BYTES) {
+					const err = new PayloadTooLargeException(
+						`Payload exceeds the maximum allowed size of ${HELP_CENTER_ARTICLE_MAX_BINARY_BYTES} bytes.`
+					);
+					// Destroy the stream immediately to stop further data events and free resources.
+					(req as any).destroy(err);
+					reject(err);
+					return;
+				}
+				chunks.push(chunk);
+			});
+			(req as any).once('end', resolve);
+			(req as any).once('error', reject);
+			// Handles premature client disconnect — prevents the Promise from hanging forever.
+			(req as any).once('close', () => {
+				if (!(req as any).complete) {
+					reject(new BadRequestException('Request was aborted before upload completed.'));
+				}
+			});
+		});
+
+		return Buffer.concat(chunks);
+	}
+}

@@ -1,0 +1,62 @@
+.app-usage {
+	--bar: #2a78d6;
+	--ink-muted: rgba(0, 0, 0, 0.55);
+
+	.filters {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	// Wide tables scroll inside the card rather than pushing the page sideways.
+	.table {
+		width: 100%;
+
+		th.num,
+		td.num {
+			text-align: right;
+			white-space: nowrap;
+		}
+		// Numbers align on the decimal by sharing one glyph width, so columns
+		// scan vertically instead of jittering.
+		td.num {
+			font-variant-numeric: tabular-nums;
+		}
+		td.strong {
+			font-weight: 600;
+		}
+		td.muted,
+		.muted {
+			color: var(--ink-muted);
+		}
+	}
+
+	// The share bar sits behind the number rather than in its own column, so the
+	// table stays four columns wide and the magnitude reads at a glance.
+	.bar {
+		display: inline-block;
+		height: 8px;
+		border-radius: 2px;
+		background: var(--bar);
+		margin-right: 0.5rem;
+		vertical-align: middle;
+		min-width: 2px;
+		max-width: 120px;
+	}
+	.pct {
+		display: inline-block;
+		min-width: 2.5rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.background-row td {
+		font-size: 0.9em;
+	}
+}
+
+:host-context([data-theme='dark']) .app-usage,
+:host-context(.nb-theme-dark) .app-usage {
+	--bar: #4c94e8;
+	--ink-muted: rgba(255, 255, 255, 0.7);
+}

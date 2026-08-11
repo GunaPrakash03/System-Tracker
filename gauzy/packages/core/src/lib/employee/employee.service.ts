@@ -1,0 +1,803 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Brackets, FindManyOptions, FindOneOptions, In, SelectQueryBuilder, WhereExpressionBuilder } from 'typeorm';
+import * as moment from 'moment';
+import {
+	IBasePerTenantAndOrganizationEntityModel,
+	ID,
+	IDateRangePicker,
+	IEmployee,
+	IFindMembersInput,
+	IPagination,
+	PermissionsEnum,
+	RolesEnum,
+	BaseEntityEnum
+} from '@gauzy/contracts';
+import { isNotEmpty } from '@gauzy/utils';
+import { RequestContext } from '../core/context';
+import { BaseQueryDTO, TenantAwareCrudService } from './../core/crud';
+import { flatten, getDateRangeFormat, MultiORMEnum, parseFindOptionsRelations } from './../core/utils';
+import { prepareSQLQuery as p } from './../database/database.helper';
+import { MikroOrmEmployeeRepository } from './repository/mikro-orm-employee.repository';
+import { TypeOrmEmployeeRepository } from './repository/type-orm-employee.repository';
+import { Employee } from './employee.entity';
+import { FavoriteService } from '../core/decorators';
+import { ManagedEmployeeService } from './managed-employee.service';
+
+@FavoriteService(BaseEntityEnum.Employee)
+@Injectable()
+export class EmployeeService extends TenantAwareCrudService<Employee> {
+	constructor(
+		readonly typeOrmEmployeeRepository: TypeOrmEmployeeRepository,
+		readonly mikroOrmEmployeeRepository: MikroOrmEmployeeRepository,
+		private readonly _managedEmployeeService: ManagedEmployeeService
+	) {
+		super(typeOrmEmployeeRepository, mikroOrmEmployeeRepository);
+	}
+
+	/**
+	 * Resolves which employees the caller may even see listed.
+	 *
+	 * Returns an empty array for an unrestricted caller (admins), meaning "apply
+	 * no id filter". Any other caller gets an explicit id list — a manager the
+	 * members of the teams they manage, a plain employee just themselves — which
+	 * is never empty, so it cannot be mistaken for "no filter".
+	 *
+	 * @returns Employee ids to restrict a listing to, or [] for no restriction
+	 */
+	private async accessibleEmployeeIds(): Promise<ID[]> {
+		if (RequestContext.hasRoles([RolesEnum.SUPER_ADMIN, RolesEnum.ADMIN])) {
+			return [];
+		}
+
+		return this._managedEmployeeService.filterAccessibleEmployeeIds([], [], [], false);
+	}
+
+	/**
+	 * Finds members based on provided options.
+	 *
+	 * @param options - The options to filter members.
+	 * @returns A pagination object containing the list of members and total count.
+	 */
+	async findMembers(options: IFindMembersInput): Promise<IPagination<IEmployee>> {
+		const { organizationId, organizationTeamId, organizationProjectId } = options;
+		const tenantId = RequestContext.currentTenantId() || options.tenantId;
+
+		switch (this.ormType) {
+			case MultiORMEnum.MikroORM:
+				const mWhere: any = {
+					tenantId,
+					organizationId,
+					isActive: true,
+					isArchived: false,
+					user: { isActive: true, isArchived: false }
+				};
+
+				if (organizationProjectId) {
+					mWhere.projects = { organizationProjectId };
+				}
+				if (organizationTeamId) {
+					mWhere.teams = { organizationTeamId };
+				}
+
+				const [mItems, mTotal] = await this.mikroOrmRepository.findAndCount(mWhere, {
+					populate: ['user'] as any[],
+					fields: ['id', 'isActive', 'isArchived', 'userId', 'isOnline', 'isAway'] as any[]
+				});
+				return { items: mItems.map((item) => this.serialize(item)), total: mTotal };
+
+			case MultiORMEnum.TypeORM:
+				// Create a query builder for the Employee entity
+				const query = this.typeOrmEmployeeRepository.createQueryBuilder('employee');
+				query.leftJoin('employee.user', 'user');
+
+				// Set pagination options and selected table properties/fields
+				query.setFindOptions({
+					select: {
+						id: true,
+						isActive: true,
+						isArchived: true,
+						userId: true,
+						isOnline: true,
+						isAway: true,
+						user: {
+							id: true,
+							firstName: true,
+							lastName: true,
+							email: true,
+							imageUrl: true
+						}
+					},
+					relations: { user: true }
+				});
+
+				// Organization Project ID
+				if (organizationProjectId) {
+					query.leftJoin('employee.projects', 'projects');
+					query.andWhere('projects.organizationProjectId = :organizationProjectId', {
+						organizationProjectId
+					});
+				}
+
+				// Organization Team ID
+				if (organizationTeamId) {
+					query.leftJoin('employee.teams', 'teams');
+					query.andWhere('teams.organizationTeamId = :organizationTeamId', { organizationTeamId });
+				}
+
+				// Apply filter conditions using TypeORM SelectQueryBuilder
+				query.andWhere(
+					new Brackets((web: WhereExpressionBuilder) => {
+						// Filter by tenant ID, organization ID, isActive, and isArchived
+						web.andWhere(p(`"${query.alias}"."tenantId" = :tenantId`), { tenantId });
+						web.andWhere(p(`"${query.alias}"."organizationId" = :organizationId`), { organizationId });
+						web.andWhere(p(`"${query.alias}"."isActive" = :isActive`), { isActive: true });
+						web.andWhere(p(`"${query.alias}"."isArchived" = :isArchived`), { isArchived: false });
+
+						// Additional conditions for user isActive and isArchived
+						web.andWhere(p(`"user"."isActive" = :isActive`), { isActive: true });
+						web.andWhere(p(`"user"."isArchived" = :isArchived`), { isArchived: false });
+					})
+				);
+
+				const [items, total] = await query.getManyAndCount();
+				return { items, total };
+
+			default:
+				throw new Error(`Not implemented for ${this.ormType}`);
+		}
+	}
+
+	/**
+	 * Retrieves a list of active, non-archived employees based on provided employee IDs,
+	 * organization ID, and tenant ID.
+	 *
+	 * @param {ID[]} employeeIds - Array of employee IDs to search for. Defaults to an empty array if not provided.
+	 * @param {ID} organizationId - The ID of the organization to filter employees.
+	 * @param {ID} tenantId - The ID of the tenant to filter employees.
+	 * @returns {Promise<IEmployee[]>} - Promise resolving with an array of matching `IEmployee` objects.
+	 *
+	 * @throws {Error} - Throws an error if the retrieval process fails.
+	 */
+	async findActiveEmployeesByEmployeeIds(
+		employeeIds: ID[] = [],
+		organizationId: ID,
+		tenantId: ID
+	): Promise<IEmployee[]> {
+		try {
+			// Filter out any invalid values from the employee IDs array
+			const filteredIds = employeeIds.filter(Boolean);
+
+			// Fetch employees using filtered IDs, organizationId, and tenantId
+			return await this.find({
+				where: {
+					id: In(filteredIds),
+					organizationId,
+					tenantId,
+					isActive: true,
+					isArchived: false
+				}
+			});
+		} catch (error) {
+			throw new Error(`Failed to retrieve employees: ${error}`);
+		}
+	}
+
+	/**
+	 * Finds employees based on an array of user IDs.
+	 *
+	 * @param userIds An array of user IDs.
+	 * @param tenantId The ID of the tenant to filter employees.
+	 * @returns A promise resolving to an array of employees.
+	 */
+	async findEmployeesByUserIds(userIds: ID[], tenantId: ID): Promise<IEmployee[]> {
+		try {
+			// Define the options for the query
+			const options: FindManyOptions<Employee> = {
+				// Construct the base where clause for querying employees by user IDs
+				where: {
+					userId: In(userIds), // Find employees with matching user IDs
+					tenantId // Find employees in the same tenant
+				}
+			};
+
+			// Use base class find which handles both ORMs and tenant scoping
+			return await this.find(options);
+		} catch (error) {
+			console.error(`Error finding employees by user IDs: ${error.message}`);
+			return []; // Return an empty array if an error occurs
+		}
+	}
+
+	/**
+	 * Finds the employeeId associated with a given userId.
+	 *
+	 * @param userId The ID of the user.
+	 * @param organizationId Optional organization ID. If not provided, uses the current organization from request context.
+	 * @returns The employeeId or null if not found or in case of an error.
+	 */
+	async findEmployeeIdByUserId(userId: ID, organizationId?: ID): Promise<string | null> {
+		try {
+			const tenantId = RequestContext.currentTenantId();
+			const orgId = organizationId || RequestContext.currentOrganizationId();
+
+			// Construct the where clause based on whether tenantId/organizationId is available
+			const whereClause = {
+				userId,
+				isActive: true,
+				isArchived: false,
+				...(tenantId && { tenantId }),
+				...(orgId && { organizationId: orgId })
+			};
+
+			// Use base class method which handles both ORMs and tenant scoping
+			const employee = await this.findOneByWhereOptions(whereClause);
+			return employee ? employee.id : null;
+		} catch (error) {
+			console.error(`Error finding employee by userId: ${error.message}`);
+			return null;
+		}
+	}
+
+	/**
+	 * Finds an employee by user ID.
+	 *
+	 * @param userId The ID of the user to find.
+	 * @param organizationId Optional organization ID. If not provided, uses the current organization from request context.
+	 * @param options Optional FindOneOptions.
+	 * @returns A Promise resolving to the employee if found, otherwise null.
+	 */
+	async findOneByUserId(
+		userId: ID,
+		organizationId?: ID,
+		options?: FindOneOptions<Employee>
+	): Promise<IEmployee | null> {
+		try {
+			const tenantId = RequestContext.currentTenantId();
+			const orgId = organizationId || RequestContext.currentOrganizationId();
+
+			// Define the base where clause
+			const whereClause = {
+				userId,
+				isActive: true,
+				isArchived: false,
+				...(tenantId && { tenantId }),
+				...(orgId && { organizationId: orgId })
+			};
+
+			// Merge the existing where conditions in options, if any
+			const queryOptions: FindOneOptions<Employee> = {
+				...options,
+				where: {
+					...whereClause,
+					...(options?.where || {}) // Merge with existing where options if present
+				}
+			};
+
+			// Use base class method which handles both ORMs and tenant scoping
+			return await this.findOneByOptions(queryOptions);
+		} catch (error) {
+			console.error(`Error finding employee by userId: ${error.message}`);
+			return null;
+		}
+	}
+
+	/**
+	 * Retrieves all active employees with their associated user and organization details.
+	 * @returns A Promise that resolves to an array of active employees.
+	 */
+	public async findAllActive(): Promise<IEmployee[]> {
+		try {
+			return await super.find({
+				where: { isActive: true, isArchived: false },
+				relations: { user: true, organization: true }
+			});
+		} catch (error) {
+			// Handle any potential errors, log, and optionally rethrow or return a default value.
+			console.error('Error occurred while fetching active employees:', error);
+			return [];
+		}
+	}
+
+	/**
+	 * Find the employees working in the organization for a particular date range.
+	 * An employee is considered to be 'working' if:
+	 * 1. The startedWorkOn date is (not null and) less than the last day forMonth
+	 * 2. The endWork date is either null or greater than the first day forMonth
+	 * @param organizationId
+	 * @param forRange
+	 * @param withUser
+	 * @returns
+	 */
+	async findWorkingEmployees(
+		organizationId: ID,
+		forRange: IDateRangePicker | any,
+		withUser: boolean = false
+	): Promise<IPagination<IEmployee>> {
+		try {
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM:
+					const tenantId = RequestContext.currentTenantId();
+					const mWhere: any = {
+						tenantId,
+						organizationId,
+						isActive: true,
+						isArchived: false,
+						user: { isActive: true, isArchived: false }
+					};
+
+					// Date range filters
+					if (isNotEmpty(forRange) && forRange.startDate && forRange.endDate) {
+						const { start: startDate, end: endDate } = getDateRangeFormat(
+							moment.utc(forRange.startDate),
+							moment.utc(forRange.endDate)
+						);
+						mWhere.startedWorkOn = { $lte: endDate };
+						mWhere.$or = [{ endWork: null }, { endWork: { $gte: startDate } }];
+					}
+
+					// Restrict the listing to the employees this caller may see. A
+					// manager holds CHANGE_SELECTED_EMPLOYEE so the selector renders
+					// for them, which is why a permission-only check let a manager
+					// enumerate the whole organisation.
+					const mAccessibleIds = await this.accessibleEmployeeIds();
+					if (isNotEmpty(mAccessibleIds)) {
+						mWhere.id = { $in: mAccessibleIds };
+					}
+
+					const [mItems, mTotal] = await this.mikroOrmRepository.findAndCount(mWhere, {
+						populate: withUser ? (['user'] as any[]) : ([] as any[])
+					});
+					return { items: mItems.map((item) => this.serialize(item)), total: mTotal };
+
+				case MultiORMEnum.TypeORM:
+					const query = this.typeOrmEmployeeRepository.createQueryBuilder(this.tableName);
+					query.innerJoin(`${query.alias}.user`, 'user');
+					query.innerJoin(`user.organizations`, 'organizations');
+					query.setFindOptions({
+						select: {
+							id: true,
+							isActive: true,
+							short_description: true,
+							description: true,
+							averageIncome: true,
+							averageExpenses: true,
+							averageBonus: true,
+							startedWorkOn: true,
+							isTrackingEnabled: true,
+							billRateCurrency: true,
+							billRateValue: true,
+							minimumBillingRate: true,
+							userId: true,
+							isAway: true,
+							isOnline: true,
+							user: {
+								id: true,
+								firstName: true,
+								lastName: true,
+								email: true,
+								imageUrl: true,
+								timeZone: true,
+								timeFormat: true
+							}
+						},
+						relations: {
+							...(withUser ? { user: true } : {})
+						}
+					});
+					// Set up the where clause using the provided filter function
+					query.where((qb: SelectQueryBuilder<Employee>) => {
+						this.getFilterQuery(qb, organizationId, forRange);
+					});
+
+					// Restrict the listing to the employees this caller may see. An
+					// empty list means an unrestricted caller (admin); every other
+					// caller gets a non-empty list, so this cannot silently widen.
+					const accessibleIds = await this.accessibleEmployeeIds();
+					if (isNotEmpty(accessibleIds)) {
+						query.andWhere(p(`"${query.alias}"."id" IN (:...accessibleIds)`), { accessibleIds });
+					}
+
+					const [items, total] = await query.getManyAndCount();
+					return { items, total };
+
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+		} catch (error) {
+			console.log('Error while getting working employees: %s', error);
+		}
+	}
+
+	/**
+	 * Find the counts of employees working in the organization for a particular date range.
+	 * An employee is considered to be 'working' if:
+	 * 1. The startedWorkOn date is (not null and) less than the last day forMonth
+	 * 2. The endWork date is either null or greater than the first day forMonth
+	 * @param organizationId
+	 * @param forRange
+	 * @returns
+	 */
+	async findWorkingEmployeesCount(
+		organizationId: string,
+		forRange: IDateRangePicker | any
+	): Promise<{ total: number }> {
+		try {
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM:
+					const mTenantId = RequestContext.currentTenantId();
+					const mWhere: any = {
+						tenantId: mTenantId,
+						organizationId,
+						isActive: true,
+						isArchived: false,
+						user: { isActive: true, isArchived: false }
+					};
+
+					if (isNotEmpty(forRange) && forRange.startDate && forRange.endDate) {
+						const { start: startDate, end: endDate } = getDateRangeFormat(
+							moment.utc(forRange.startDate),
+							moment.utc(forRange.endDate)
+						);
+						mWhere.startedWorkOn = { $lte: endDate };
+						mWhere.$or = [{ endWork: null }, { endWork: { $gte: startDate } }];
+					}
+
+					// Keep the count consistent with the listing above, or a manager
+					// sees "5 employees" over a dropdown containing one.
+					const mCountAccessibleIds = await this.accessibleEmployeeIds();
+					if (isNotEmpty(mCountAccessibleIds)) {
+						mWhere.id = { $in: mCountAccessibleIds };
+					}
+
+					const mTotal = await this.mikroOrmRepository.count(mWhere);
+					return { total: mTotal };
+
+				case MultiORMEnum.TypeORM:
+					const query = this.typeOrmEmployeeRepository.createQueryBuilder(this.tableName);
+					query.innerJoin(`${query.alias}.user`, 'user');
+					query.innerJoin(`user.organizations`, 'organizations');
+
+					// Set up the where clause using the provided filter function
+					query.where((qb: SelectQueryBuilder<Employee>) => {
+						this.getFilterQuery(qb, organizationId, forRange);
+					});
+
+					// Keep the count consistent with the listing, or a manager sees
+					// "5 employees" above a dropdown that contains one.
+					const countAccessibleIds = await this.accessibleEmployeeIds();
+					if (isNotEmpty(countAccessibleIds)) {
+						query.andWhere(p(`"${query.alias}"."id" IN (:...countAccessibleIds)`), { countAccessibleIds });
+					}
+
+					const total = await query.getCount();
+					return { total };
+
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+		} catch (error) {
+			console.log('Error while getting working employee counts: %s', error);
+		}
+	}
+
+	/**
+	 * Adds a filter to the TypeORM SelectQueryBuilder for the Employee entity based on specified conditions.
+	 *
+	 * @param qb - The TypeORM SelectQueryBuilder for the Employee entity.
+	 * @param organizationId - The organization ID to filter by.
+	 * @param forRange - An object representing a date range (IDateRangePicker) or any other type.
+	 */
+	getFilterQuery(qb: SelectQueryBuilder<Employee>, organizationId: string, forRange: IDateRangePicker | any) {
+		// Retrieve the current tenant ID from the RequestContext
+		const tenantId = RequestContext.currentTenantId();
+
+		// Apply filter conditions using TypeORM SelectQueryBuilder
+		qb.andWhere(
+			new Brackets((web: WhereExpressionBuilder) => {
+				// Filter by tenant ID, organization ID, isActive, and isArchived
+				web.andWhere(p(`"${qb.alias}"."tenantId" = :tenantId`), { tenantId });
+				web.andWhere(p(`"${qb.alias}"."organizationId" = :organizationId`), { organizationId });
+				web.andWhere(p(`"${qb.alias}"."isActive" = :isActive`), { isActive: true });
+				web.andWhere(p(`"${qb.alias}"."isArchived" = :isArchived`), { isArchived: false });
+
+				// Additional conditions for user isActive and isArchived
+				web.andWhere(p(`"user"."isActive" = :isActive`), { isActive: true });
+				web.andWhere(p(`"user"."isArchived" = :isArchived`), { isArchived: false });
+			})
+		);
+
+		// Check for date range conditions
+		if (isNotEmpty(forRange)) {
+			if (forRange.startDate && forRange.endDate) {
+				const { start: startDate, end: endDate } = getDateRangeFormat(
+					moment.utc(forRange.startDate),
+					moment.utc(forRange.endDate)
+				);
+
+				// Filter by startedWorkOn condition
+				qb.andWhere(
+					new Brackets((web: WhereExpressionBuilder) => {
+						web.andWhere(p(`"${qb.alias}"."startedWorkOn" <= :startedWorkOn`), {
+							startedWorkOn: endDate
+						});
+					})
+				);
+
+				// Filter by endWork condition (NULL or >= startDate)
+				qb.andWhere(
+					new Brackets((web: WhereExpressionBuilder) => {
+						web.where(p(`"${qb.alias}"."endWork" IS NULL`));
+						web.orWhere(p(`"${qb.alias}"."endWork" >= :endWork`), {
+							endWork: startDate
+						});
+					})
+				);
+			}
+		}
+
+		// Check for permission CHANGE_SELECTED_EMPLOYEE
+		if (
+			!RequestContext.hasPermission(PermissionsEnum.CHANGE_SELECTED_EMPLOYEE) &&
+			!RequestContext.hasPermission(PermissionsEnum.SELECT_EMPLOYEE)
+		) {
+			// Filter by current employee ID if the permission is not present
+			const employeeId = RequestContext.currentEmployeeId();
+			qb.andWhere(p(`"${qb.alias}"."id" = :employeeId`), { employeeId });
+		}
+	}
+
+	/**
+	 * Get all employees using pagination
+	 *
+	 * @param options Pagination options
+	 * @returns Promise containing paginated employees and total count
+	 */
+	public async pagination(options: BaseQueryDTO<any>): Promise<IPagination<IEmployee>> {
+		try {
+			// Retrieve the current tenant ID from the RequestContext
+			const tenantId = RequestContext.currentTenantId();
+
+			switch (this.ormType) {
+				case MultiORMEnum.MikroORM:
+					const { where: mWhere } = options;
+					const mFilter: any = {
+						tenantId,
+						...(isNotEmpty(mWhere?.organizationId) ? { organizationId: mWhere.organizationId } : {})
+					};
+
+					// Apply boolean field filters
+					const fields = ['isActive', 'isArchived', 'isTrackingEnabled', 'allowScreenshotCapture'];
+					if (isNotEmpty(mWhere)) {
+						fields.forEach((key: string) => {
+							if (key in mWhere) {
+								mFilter[key] = mWhere[key];
+							}
+						});
+
+						// Apply tag filter
+						if (isNotEmpty(mWhere.tags)) {
+							mFilter.tags = { id: { $in: mWhere.tags } };
+						}
+
+						// Apply user name/email search
+						if (isNotEmpty(mWhere.user)) {
+							const userOr: any[] = [];
+							if (isNotEmpty(mWhere.user.name)) {
+								const keywords: string[] = mWhere.user.name.split(' ');
+								keywords.forEach((keyword: string) => {
+									userOr.push({ user: { firstName: { $ilike: `%${keyword}%` } } });
+									userOr.push({ user: { lastName: { $ilike: `%${keyword}%` } } });
+								});
+							}
+							if (isNotEmpty(mWhere.user.email)) {
+								const keywords: string[] = mWhere.user.email.split(' ');
+								keywords.forEach((keyword: string) => {
+									userOr.push({ user: { email: { $ilike: `%${keyword}%` } } });
+								});
+							}
+							if (userOr.length > 0) {
+								mFilter.$or = userOr;
+							}
+						}
+					}
+
+					const [mItems, mTotal] = await this.mikroOrmRepository.findAndCount(mFilter, {
+						...(options?.relations ? { populate: flatten(options.relations) as any[] } : {}),
+						offset: options?.skip ? options.take * (options.skip - 1) : 0,
+						limit: options?.take || 10
+					});
+					return { items: mItems.map((item) => this.serialize(item)), total: mTotal };
+
+				case MultiORMEnum.TypeORM:
+					// Create a query builder for the Employee entity
+					const query = this.typeOrmRepository.createQueryBuilder(this.tableName);
+
+					// Tables joins with relations
+					query.leftJoin(`${query.alias}.user`, 'user');
+					query.leftJoin(`${query.alias}.tags`, 'tags');
+
+					// Set pagination options and selected table properties/fields
+					query.setFindOptions({
+						skip: options && options.skip ? options.take * (options.skip - 1) : 0,
+						take: options && options.take ? options.take : 10,
+						select: {
+							// Selected fields for the Employee entity
+							id: true,
+							short_description: true,
+							description: true,
+							averageIncome: true,
+							averageExpenses: true,
+							averageBonus: true,
+							startedWorkOn: true,
+							endWork: true,
+							isTrackingEnabled: true,
+							deletedAt: true,
+							allowScreenshotCapture: true,
+							allowManualTime: true,
+							allowModifyTime: true,
+							allowDeleteTime: true,
+							trackKeyboardMouseActivity: true,
+							trackAllDisplays: true,
+							allowAgentAppExit: true,
+							allowLogoutFromAgentApp: true,
+							isActive: true,
+							isArchived: true,
+							isAway: true,
+							isOnline: true
+						},
+						...(options && options.relations
+							? { relations: parseFindOptionsRelations(options.relations) }
+							: {}),
+						...(options && 'withDeleted' in options ? { withDeleted: options.withDeleted } : {}) // Include soft-deleted parent entities
+					});
+
+					// Build WHERE clause using QueryBuilder
+					query.where((qb: SelectQueryBuilder<Employee>) => {
+						const { where } = options;
+						// Apply conditions related to the current tenant and organization ID
+						qb.andWhere(
+							new Brackets((web: WhereExpressionBuilder) => {
+								web.andWhere(p(`"${qb.alias}"."tenantId" = :tenantId`), { tenantId });
+
+								if (isNotEmpty(where?.organizationId)) {
+									const organizationId = where.organizationId;
+									web.andWhere(p(`"${qb.alias}"."organizationId" = :organizationId`), {
+										organizationId
+									});
+								}
+							})
+						);
+						// Additional conditions based on the provided 'where' object
+						if (isNotEmpty(where)) {
+							// Apply conditions for specific fields in the Employee entity
+							qb.andWhere(
+								new Brackets((web: WhereExpressionBuilder) => {
+									const fields = [
+										'isActive',
+										'isArchived',
+										'isTrackingEnabled',
+										'allowScreenshotCapture'
+									];
+									fields.forEach((key: string) => {
+										if (key in where) {
+											web.andWhere(p(`${qb.alias}.${key} = :${key}`), { [key]: where[key] });
+										}
+									});
+								})
+							);
+
+							// Apply conditions related to tags
+							qb.andWhere(
+								new Brackets((web: WhereExpressionBuilder) => {
+									if (isNotEmpty(where.tags)) {
+										web.andWhere(p('tags.id IN (:...tags)'), { tags: where.tags });
+									}
+								})
+							);
+
+							// Apply conditions related to the user property in the 'where' object
+							qb.andWhere(
+								new Brackets((web: WhereExpressionBuilder) => {
+									const { user } = where;
+									if (isNotEmpty(user)) {
+										if (isNotEmpty(user.name)) {
+											const keywords: string[] = user.name.split(' ');
+											keywords.forEach((keyword: string, index: number) => {
+												web.orWhere(
+													p(`LOWER("user"."firstName") like LOWER(:first_name_${index})`),
+													{
+														[`first_name_${index}`]: `%${keyword}%`
+													}
+												);
+												web.orWhere(
+													p(`LOWER("user"."lastName") like LOWER(:last_name_${index})`),
+													{
+														[`last_name_${index}`]: `%${keyword}%`
+													}
+												);
+											});
+										}
+										if (isNotEmpty(user.email)) {
+											const keywords: string[] = user.email.split(' ');
+											keywords.forEach((keyword: string, index: number) => {
+												web.orWhere(p(`LOWER("user"."email") like LOWER(:email_${index})`), {
+													[`email_${index}`]: `%${keyword}%`
+												});
+											});
+										}
+									}
+								})
+							);
+						}
+					});
+
+					// Execute the query and retrieve paginated items and total count
+					const [items, total] = await query.getManyAndCount();
+					return { items, total };
+
+				default:
+					throw new Error(`Not implemented for ${this.ormType}`);
+			}
+		} catch (error) {
+			throw new BadRequestException(error);
+		}
+	}
+
+	/**
+	 * Softly delete an employee by ID, with organization and tenant constraints.
+	 *
+	 * @param employeeId - ID of the employee to delete.
+	 * @param params - Contains organizationId and possibly other per-tenant information.
+	 * @returns - UpdateResult or DeleteResult depending on the ORM type.
+	 */
+	async softRemovedById(employeeId: ID, params: IBasePerTenantAndOrganizationEntityModel): Promise<Employee> {
+		try {
+			// Obtain the organization ID from the provided parameters
+			const organizationId = params.organizationId;
+
+			// Obtain tenant ID from the current request context
+			const tenantId = RequestContext.currentTenantId() || params.tenantId;
+
+			// Perform the soft delete operation
+			return await super.softRemove(employeeId, {
+				where: { organizationId, tenantId },
+				relations: { user: { organizations: true }, teams: true }
+			});
+		} catch (error) {
+			console.error('Error during soft delete for employee', error);
+			throw new BadRequestException(error.message || 'Soft delete failed');
+		}
+	}
+
+	/**
+	 * Restores a soft-deleted employee by ID.
+	 *
+	 * This method restores an employee who was previously soft-deleted. It uses the organization ID
+	 * and tenant ID to ensure that the correct employee is restored.
+	 *
+	 * @param employeeId The ID of the employee to restore.
+	 * @param params Additional context parameters, including organization ID and tenant ID.
+	 * @returns The restored Employee entity.
+	 * @throws BadRequestException if the employee cannot be restored or if an error occurs.
+	 */
+	async softRecoverById(employeeId: ID, params: IBasePerTenantAndOrganizationEntityModel): Promise<Employee> {
+		try {
+			// Obtain the organization ID from the provided parameters
+			const organizationId = params.organizationId;
+
+			// Obtain the tenant ID from the current request context or the provided options
+			const tenantId = RequestContext.currentTenantId() || params.tenantId;
+
+			// Perform the soft recovery operation using the ID, organization ID, and tenant ID
+			return await super.softRecover(employeeId, {
+				where: { organizationId, tenantId },
+				relations: { user: { organizations: true }, teams: true },
+				withDeleted: true
+			});
+		} catch (error) {
+			console.error('Error during soft recovery operation for employee:', error);
+			// Throw a BadRequestException if any error occurs during soft recovery
+			throw new BadRequestException(error.message || 'Failed to recover soft-deleted employee');
+		}
+	}
+}

@@ -1,0 +1,325 @@
+@use 'themes' as *;
+@use '@shared/reusable' as *;
+
+@mixin addPaddings {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.main-section {
+  width: 765px;
+  display: flex;
+  justify-content: space-between;
+}
+.register-wrapper {
+  width: 476px;
+  height: 100%;
+  padding: 30px;
+  background: nb-theme(gauzy-card-2);
+  border-radius: nb-theme(border-radius);
+  &.dark {
+    background: #292933;
+  }
+  & > * {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  & .title-wrapper {
+    margin-bottom: 24px;
+    & > .title {
+      font-family: Inter;
+      font-size: 24px;
+      font-style: normal;
+      font-weight: 700;
+      line-height: 30px;
+      letter-spacing: 0em;
+      text-align: left;
+    }
+  }
+  & .hr-div-strong {
+    @include hr-div-strong;
+  }
+  & .hr-div-soft {
+    @include hr-div-soft;
+  }
+  & .another-action {
+    margin-top: 12px;
+    @include another-action;
+    .text-link {
+      text-decoration: none;
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+  & .form-control-group {
+    @include mobile-screen {
+      margin-bottom: 1rem;
+    }
+  }
+}
+.features-wrapper {
+  width: 260px;
+  height: 100%;
+}
+.svg-wrapper {
+  margin-bottom: 55px;
+  display: flex;
+  justify-content: space-between;
+}
+.form {
+  margin-top: 21px;
+  margin-bottom: 42px;
+  & .form-control-group {
+    margin-bottom: 16px;
+    .label {
+      display: block;
+      margin-bottom: 8px;
+      font-family: Inter;
+      font-weight: 600;
+      color: nb-theme(text-basic-color);
+    }
+    ::ng-deep input.input-full-width {
+      border: 1px solid rgba(98, 54, 255, 0.5) !important;
+      background-color: transparent;
+      color: nb-theme(text-basic-color);
+    }
+  }
+  & .btn-wrapper {
+    text-align: end;
+    @include mobile-screen {
+      text-align: center;
+    }
+    & .submit-btn {
+      @include submit-btn;
+      padding: 13px 65px;
+      font-weight: 700;
+      text-transform: none;
+      letter-spacing: normal;
+      border-radius: 8px;
+      line-height: 20px;
+      transition:
+        background-color 0.2s,
+        border-color 0.2s;
+      // Disabled/Submitting state (MUST BE FIRST)
+      &[disabled],
+      &.btn-pulse {
+        cursor: not-allowed !important;
+        // Light theme: Visible grey with purple tint
+        @include nb-for-theme(default) {
+          background-color: rgba(98, 54, 255, 0.08) !important;
+          border-color: rgba(98, 54, 255, 0.25) !important;
+          color: rgba(98, 54, 255, 0.65) !important;
+        }
+        // Dark theme: Original subtle style
+        @include nb-for-theme(dark) {
+          background-color: nb-theme(background-basic-color-3) !important;
+          border-color: transparent !important;
+          color: nb-theme(text-hint-color) !important;
+        }
+        &:hover,
+        &:active,
+        &:focus {
+          @include nb-for-theme(default) {
+            background-color: rgba(98, 54, 255, 0.08) !important;
+            border-color: rgba(98, 54, 255, 0.25) !important;
+            color: rgba(98, 54, 255, 0.65) !important;
+          }
+          @include nb-for-theme(dark) {
+            background-color: nb-theme(background-basic-color-3) !important;
+            border-color: transparent !important;
+            color: nb-theme(text-hint-color) !important;
+          }
+        }
+      }
+      // Enabled state
+      &:not([disabled]):not(.btn-pulse) {
+        background-color: nb-theme(color-primary-default) !important;
+        border-color: nb-theme(color-primary-default) !important;
+        color: white !important;
+        &:hover,
+        &:active,
+        &:focus {
+          background-color: nb-theme(color-primary-hover) !important;
+          border-color: nb-theme(color-primary-hover) !important;
+          color: white !important;
+        }
+      }
+    }
+  }
+  & .accept-group {
+    margin: 0 0 24px 0;
+    ::ng-deep nb-checkbox {
+      display: flex;
+      align-items: center;
+      .label {
+        margin-bottom: 0 !important;
+        padding-left: 0.5rem;
+        color: nb-theme(text-basic-color);
+      }
+      .custom-checkbox {
+        border-radius: 2px !important; // Make it square
+        border-color: #8f9bb3 !important; // Light grey border
+        background-color: transparent;
+        border-width: 1px !important;
+      }
+      .custom-checkbox.checked {
+        background-color: #6236ff !important;
+        border-color: #6236ff !important;
+      }
+    }
+    @include mobile-screen {
+      margin-left: -10px;
+      min-width: calc(100% + 30px);
+      text-align: center;
+      margin-top: 0;
+      & .normal-terms-text {
+        font-family: Inter;
+        font-size: 10px;
+        font-style: normal;
+        font-weight: 400;
+        line-height: 13px;
+        letter-spacing: 0em;
+        text-align: left;
+      }
+      & .terms-link {
+        font-family: Inter;
+        font-size: 10px;
+        font-style: normal;
+        font-weight: 600;
+        line-height: 13px;
+        letter-spacing: 0em;
+        text-align: left;
+      }
+    }
+  }
+}
+.links {
+  margin-top: 21px;
+  margin-bottom: 28px;
+  @include social-links-style;
+}
+
+.theme-switch {
+  @include not-mobile-screen {
+    display: none;
+  }
+}
+
+::ng-deep .label .text:not(:empty) {
+  padding-left: 5px !important;
+  vertical-align: middle;
+}
+
+@include small-laptop-screen {
+  .register-wrapper {
+    padding: 16px 24px;
+    & .another-action {
+      margin-top: 0;
+      padding-left: 10px;
+    }
+  }
+  .svg-wrapper {
+    padding-top: 8px;
+    margin-bottom: 32px;
+  }
+  .form {
+    margin-top: 16px;
+    margin-bottom: 16px;
+    & .form-control-group {
+      margin-bottom: 12px;
+    }
+    & .accept-group {
+      margin-top: 12px;
+    }
+  }
+  .links {
+    margin-top: 8px;
+    margin-bottom: 8px;
+  }
+
+  // Further compact for short viewports within the small-laptop width range
+  // (491–1024px wide, height <1080px) — deterministic: no conflict with the
+  // wide-screen height query below.
+  @media screen and (max-height: 1080px) {
+    .register-wrapper {
+      & .title-wrapper {
+        margin-bottom: 8px;
+      }
+      & .another-action {
+        margin-top: 4px;
+      }
+    }
+    .svg-wrapper {
+      margin-bottom: 16px;
+    }
+    .form {
+      & .accept-group {
+        margin: 0 0 8px 0;
+      }
+    }
+  }
+}
+
+// Compact layout for short viewport heights on wider screens (>1024px wide)
+@media screen and (max-height: 1080px) and (min-width: 1025px) {
+  .register-wrapper {
+    padding: 16px 24px;
+    & .title-wrapper {
+      margin-bottom: 8px;
+    }
+    & .another-action {
+      margin-top: 4px;
+    }
+  }
+  .svg-wrapper {
+    padding-top: 8px;
+    margin-bottom: 16px;
+  }
+  .form {
+    margin-top: 16px;
+    margin-bottom: 16px;
+    & .form-control-group {
+      margin-bottom: 12px;
+    }
+    & .accept-group {
+      margin: 0 0 8px 0;
+    }
+  }
+  .links {
+    margin-top: 8px;
+    margin-bottom: 8px;
+  }
+}
+
+@include tablet-screen {
+  .main-section {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  .features-wrapper {
+    width: 476px;
+    margin-top: 30px;
+  }
+}
+
+@include mobile-screen {
+  .main-section,
+  .register-wrapper {
+    width: 100%;
+  }
+  .register-wrapper {
+    padding: 20px 12px;
+    & .title-wrapper {
+      & > .title {
+        text-align: center;
+      }
+    }
+  }
+  .features-wrapper {
+    width: 100%;
+  }
+}
+// input fields color
+@include input-fields-color;

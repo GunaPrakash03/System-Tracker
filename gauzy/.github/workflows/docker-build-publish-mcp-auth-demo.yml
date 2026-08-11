@@ -1,0 +1,121 @@
+name: Build and Publish Gauzy MCP Auth Image Demo
+
+on:
+  push:
+    branches:
+      - develop
+      - temp
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # One group PER WORKFLOW, not one shared across all six non-prod image builds.
+  #
+  # The shared `gauzy-docker-build` group did not queue them — it starved them. GitHub
+  # keeps exactly ONE pending run per group, so every newly queued run cancels the run
+  # already waiting, whatever workflow it came from. A single push to develop fires three
+  # of these, a push to stage another three; five of every six were cancelled before they
+  # started. Environments then silently kept serving their previous image, which is how
+  # stage sat on an image five PRs old while its branch looked merged and green.
+  #
+  # Keyed by workflow so the useful part survives: a newer push still supersedes this
+  # workflow's own older pending run, and `cancel-in-progress: false` still never kills a
+  # build that is already running. What it no longer does is let an unrelated image build
+  # cancel this one.
+  #
+  # The cost is that these can once again overlap. That was the original worry — ~6-8
+  # parallel installs against one registry VIP — but an image that never builds is a worse
+  # failure than a slow one, and this is the only lever Actions offers: there is no way to
+  # ask for a queue deeper than one. The prod (master) workflows are still not in any
+  # shared group.
+  group: gauzy-docker-build-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  gauzy-mcp-auth:
+    runs-on: ${{ vars.RUNNER_LINUX_X64_8 || 'ubuntu-latest' }}
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./.deploy/mcp-auth/Dockerfile
+          load: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/ever-co/gauzy-mcp-auth-demo:latest
+            everco/gauzy-mcp-auth-demo:latest
+            registry.digitalocean.com/ever/gauzy-mcp-auth-demo:latest
+          cache-from: type=registry,ref=ghcr.io/ever-co/gauzy-mcp-auth-demo:latest
+          cache-to: type=inline
+          build-args: |
+            NODE_ENV=production
+            VERDACCIO_REGISTRY=${{ vars.VERDACCIO_REGISTRY }}
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+            NX_BRANCH=${{ github.ref_name }}
+            VERDACCIO_TOKEN=${{ secrets.VERDACCIO_TOKEN }}
+
+      - name: Docker images list
+        run: |
+          sudo docker image list
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub Registry
+        run: |
+          docker push everco/gauzy-mcp-auth-demo:latest
+
+      - name: Install doctl
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry with short-lived credentials
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Push to DigitalOcean Registry
+        if: ${{ vars.DO_ENABLED == 'true' }}
+        run: |
+          docker push registry.digitalocean.com/ever/gauzy-mcp-auth-demo:latest
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to Github Registry
+        run: |
+          docker push ghcr.io/ever-co/gauzy-mcp-auth-demo:latest
+
+    #   - name: Login to CW Container Registry
+    #     uses: docker/login-action@v4
+    #     with:
+    #       registry: ${{ secrets.CW_DOCKER_REGISTRY }}
+    #       username: ${{ secrets.CW_DOCKER_USER }}
+    #       password: ${{ secrets.CW_DOCKER_USER_PASSWORD }}
+
+    #     - name: Push to CW Registry
+    #     run: |
+    #         docker push ${{ secrets.CW_DOCKER_REGISTRY }}/ever-co/gauzy-mcp-auth:latest

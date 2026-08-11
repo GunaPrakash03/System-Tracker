@@ -1,0 +1,110 @@
+@use 'gauzy/_gauzy-table' as *;
+@use 'gauzy/_gauzy-cards' as *;
+@use 'gauzy/tabset-actions' as *;
+
+:host {
+  height: 100%;
+  nb-tab.content-active {
+    padding: 1rem;
+    height: calc(100% - 3rem);
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
+    overflow: unset;
+    display: flex;
+    flex-direction: column;
+    @include nb-ltr(padding, 1rem 0.5rem 1rem 18px);
+    @include nb-rtl(padding, 1rem 18px 1rem 0.5rem);
+    nb-accordion {
+      @include nb-ltr(margin-right, 0.625rem);
+      @include nb-rtl(margin-left, 0.625rem);
+    }
+  }
+  nb-tabset {
+    height: calc(100% - 1.5rem);
+  }
+  nb-card,
+  nb-tab.content-active {
+    background-color: var(--gauzy-card-2);
+  }
+  nb-card-body {
+    overflow: unset;
+    background-color: unset;
+  }
+  nb-card {
+    height: 100%;
+  }
+}
+:host .gauzy-button-container {
+  // Sits on the tab strip. The mixin reproduces the tab link's box so the
+  // buttons centre on the strip, and — critically — lets pointer events
+  // through the empty part of the row: this container is globally
+  // `width: 100%` (gauzy/_gauzy-table), so as a plain absolute overlay it
+  // swallowed every click on the tab labels underneath it.
+  @include tabset-action-row(18px);
+}
+nb-accordion-item-header ::ng-deep nb-icon {
+  border: 1px solid nb-theme(border-basic-color-4);
+  border-radius: nb-theme(input-rectangle-border-radius);
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.grid {
+  overflow: auto;
+  height: 100%;
+}
+
+:host nb-card-body {
+  height: calc(100vh - 13.5rem) !important;
+  ::ng-deep angular2-smart-table {
+    .angular2-smart-actions {
+      width: 5%;
+      a {
+        transform: scale(0.6);
+        border-radius: 0.5rem;
+      }
+      a:nth-child(1) {
+        background-color: #00d68f !important;
+        color: white;
+      }
+      a:nth-child(2) {
+        background-color: white !important;
+        color: #ff3d71;
+        box-shadow: var(--gauzy-shadow);
+      }
+    }
+    .angular2-smart-actions-title {
+      a {
+        background-color: #00d68f !important;
+        transform: scale(0.9);
+      }
+    }
+  }
+}
+
+:host ::ng-deep ngx-avatar {
+  .inner-wrapper {
+    background-color: nb-theme(color-primary-transparent-100);
+    border-radius: nb-theme(button-rectangle-border-radius);
+    padding: 3px 9px 3px 3px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: fit-content;
+    .image-container {
+      height: 20px;
+      width: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      img[type='user'] {
+        height: 18px;
+        width: 18px;
+      }
+    }
+    .link-text {
+      color: nb-theme(text-primary-color);
+      font-weight: normal;
+    }
+  }
+}

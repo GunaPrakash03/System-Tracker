@@ -1,0 +1,44 @@
+@use '@shared/_pg-card' as *;
+
+.tasks-component {
+  &__settings {
+    display: flex;
+    align-items: center;
+  }
+}
+.project-selector {
+  min-width: 15rem;
+  ng-select {
+    min-width: 10rem;
+    .selector-template {
+      display: flex;
+      align-items: center;
+      height: 100%;
+    }
+  }
+}
+
+nb-card-body {
+  overflow: unset;
+  &.project {
+    height: calc($card-height - 0.5rem) !important;
+  }
+}
+
+// The sprint board is the card body's scrolling child, exactly like
+// `.table-scroll-container` is in the grid layout — @shared/_pg-card makes the
+// body a definite-height flex column, so this wrapper only has to pass that
+// height through to `ga-tasks-sprint-view` (which sizes itself from here).
+.sprint-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+:host ::ng-deep .sprint-view {
+  nb-accordion {
+    @include nb-ltr(padding-right, 0.5rem);
+    @include nb-rtl(padding-left, 0.5rem);
+  }
+}

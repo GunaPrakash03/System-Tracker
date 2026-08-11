@@ -1,0 +1,95 @@
+// Chart palette. Both modes were validated with the dataviz palette checker
+// against the surfaces they actually render on (#ffffff light, #222b45 dark):
+// lightness band, chroma floor, CVD separation, normal-vision floor and
+// contrast vs surface all pass. Dark is its own set of steps, not a flip of
+// light — an automatic inversion fails the lightness band.
+.tracker-chart {
+	--productive: #0f8f5f;
+	--neutral: #2a78d6;
+	--unproductive: #c62f2f;
+	--idle: #7a5ea8;
+	--grid: rgba(0, 0, 0, 0.12);
+	--ink-muted: rgba(0, 0, 0, 0.55);
+
+	.chart-filters {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		flex-wrap: wrap;
+		margin-bottom: 0.75rem;
+	}
+
+	.chart-legend {
+		display: flex;
+		gap: 1.25rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+		font-size: 0.85rem;
+		// Labels stay in ink, never the series colour; the swatch carries identity.
+		color: var(--ink-muted);
+
+		.sw {
+			display: inline-block;
+			width: 10px;
+			height: 10px;
+			border-radius: 2px;
+			margin-right: 0.4rem;
+			vertical-align: middle;
+		}
+		.sw.productive { background: var(--productive); }
+		.sw.neutral { background: var(--neutral); }
+		.sw.unproductive { background: var(--unproductive); }
+		.sw.idle { background: var(--idle); }
+	}
+
+	// Wide days scroll inside the chart rather than pushing the page sideways.
+	.chart-scroll {
+		overflow-x: auto;
+		padding-bottom: 0.25rem;
+	}
+
+	.chart {
+		min-width: 100%;
+		height: 300px;
+
+		.grid line {
+			stroke: var(--grid);
+			stroke-width: 0.4;
+		}
+		.grid text {
+			font-size: 4px;
+			fill: var(--ink-muted);
+		}
+		.xlabel {
+			font-size: 5px;
+			fill: var(--ink-muted);
+			text-anchor: middle;
+		}
+		// A 2px surface-coloured gap between stacked segments, so adjacent
+		// fills read as separate blocks without an outline.
+		.seg {
+			stroke: var(--card-background-color, #fff);
+			stroke-width: 0.6;
+		}
+		.seg.productive { fill: var(--productive); }
+		.seg.neutral { fill: var(--neutral); }
+		.seg.unproductive { fill: var(--unproductive); }
+		.seg.idle { fill: var(--idle); }
+		.seg:hover { opacity: 0.85; }
+	}
+
+	.totals td {
+		border-top: 2px solid var(--grid);
+	}
+}
+
+// Dark mode: separately chosen steps, validated against #222b45.
+:host-context([data-theme='dark']) .tracker-chart,
+:host-context(.nb-theme-dark) .tracker-chart {
+	--productive: #1da572;
+	--neutral: #4c94e8;
+	--unproductive: #e05a5a;
+	--idle: #9079cc;
+	--grid: rgba(255, 255, 255, 0.16);
+	--ink-muted: rgba(255, 255, 255, 0.7);
+}

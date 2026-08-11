@@ -1,0 +1,13 @@
+@use '@shared/_whats-new';
+@use 'gauzy/_gauzy-dialogs';
+
+::ng-deep.changelog-sidebar {
+  .main-container {
+    width: 33rem !important;
+  }
+}
+i {
+  position: absolute;
+  right: 0.75rem;
+  top: 0.75rem;
+}

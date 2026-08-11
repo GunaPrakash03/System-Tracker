@@ -1,0 +1,21 @@
+@if (project) {
+  <div class="single-project-template">
+    <div class="logo-wrapper">
+      @if (project?.imageUrl) {
+        <img draggable="false" [src]="project?.imageUrl" />
+      } @else {
+        <img
+          draggable="false"
+          [src]="fallbackSvg"
+          class="default-image"
+          />
+        }
+      </div>
+      <div class="headers-wrapper">
+        <div class="main-header" [title]="project?.name">{{ project?.name }} </div>
+        <div class="employees-count">Members count {{ project?.membersCount }}</div>
+      </div>
+    </div>
+  } @else {
+    <span>{{ 'REPORT_PAGE.NO_PROJECT' | translate }}</span>
+  }

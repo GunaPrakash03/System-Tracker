@@ -1,0 +1,30 @@
+@use 'var' as *;
+
+:host {
+	min-width: 200px;
+	display: block;
+
+	.multiple-select {
+		width: 100%;
+	}
+
+	ng-select {
+		// Mirrors the team selector: a flex row for logo + name, no `height: 100%`
+		// (the parent is auto-height, so it never resolved to anything), and no
+		// per-selector text inset — the trigger owns both, so all four header
+		// selectors line up with each other.
+		.selector-template {
+			display: flex;
+			align-items: center;
+		}
+
+		img {
+			margin-right: 5px;
+			border-radius: nb-theme(button-rectangle-border-radius);
+		}
+	}
+}
+
+img {
+	object-fit: cover;
+}

@@ -1,0 +1,57 @@
+{
+	"name": "@gauzy/desktop-api",
+	"version": "0.1.0",
+	"description": "Ever Gauzy Platform desktop APIs",
+	"author": {
+		"name": "Ever Co. LTD",
+		"email": "ever@ever.co",
+		"url": "https://ever.co"
+	},
+	"homepage": "https://gauzy.co",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ever-co/ever-gauzy.git"
+	},
+	"bugs": {
+		"url": "https://github.com/ever-co/ever-gauzy/issues"
+	},
+	"license": "AGPL-3.0",
+	"private": true,
+	"scripts": {
+		"build": "yarn nx build desktop-api --configuration=development",
+		"build:prod": "yarn nx build desktop-api --configuration=production"
+	},
+	"keywords": [
+		"desktop",
+		"api",
+		"gauzy",
+		"nestjs",
+		"microservices",
+		"grpc",
+		"wakatime",
+		"typeorm",
+		"mikro-orm",
+		"integration",
+		"platform",
+		"productivity",
+		"open-source"
+	],
+	"dependencies": {
+		"@grpc/grpc-js": "^1.6.7",
+		"@mikro-orm/core": "^6.6.14",
+		"@mikro-orm/nestjs": "^6.1.2",
+		"@nestjs/common": "^11.1.26",
+		"@nestjs/core": "^11.1.26",
+		"@nestjs/typeorm": "^11.0.1",
+		"@gauzy/plugin-integration-wakatime": "^0.1.0"
+	},
+	"devDependencies": {
+		"@nestjs/testing": "^11.1.26",
+		"@types/node": "^24.10.0"
+	},
+	"engines": {
+		"node": ">=22",
+		"yarn": ">=1.22"
+	},
+	"sideEffects": false
+}

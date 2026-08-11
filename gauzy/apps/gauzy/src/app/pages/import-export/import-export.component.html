@@ -1,0 +1,108 @@
+<nb-card
+  [nbSpinner]="loading"
+  nbSpinnerStatus="primary"
+  nbSpinnerSize="large"
+  class="card-scroll"
+  >
+  <nb-card-header>
+    <h4>
+      <ngx-header-title [allowEmployee]="false">
+        <span class="menu-setting">{{ 'MENU.SETTINGS' | translate }}/</span>
+        {{ 'MENU.IMPORT_EXPORT.IMPORT_EXPORT_DATA' | translate }}
+      </ngx-header-title>
+    </h4>
+  </nb-card-header>
+  <nb-card-body>
+    <div class="row">
+      <div class="col-sm-12 button-imports">
+        <div class="button-import">
+          <!--
+            `shape="round"` was dropped: this was the only button in this row
+            that asked for a pill, so it sat next to rectangles. (The row holds
+            up to four — Migrate To Cloud is behind `!environment.DEMO` and the
+            MIGRATE_GAUZY_CLOUD permission, so on a demo build there are fewer.)
+
+            This is a deliberate restyle of something that did render, not the
+            removal of a rule that never applied.
+          -->
+          <button
+            class="action"
+            nbButton
+            status="success"
+            size="small"
+            (click)="importPage()"
+            >
+            <nb-icon icon="upload-outline"></nb-icon>
+            {{ 'MENU.IMPORT_EXPORT.IMPORT' | translate }}
+          </button>
+        </div>
+        <div class="button-import">
+          <button
+            class="action"
+            nbButton
+            status="info"
+            size="small"
+            (click)="exportPage()"
+            >
+            <nb-icon icon="download-outline"></nb-icon>
+            {{ 'MENU.IMPORT_EXPORT.EXPORT' | translate }}
+          </button>
+        </div>
+        <div class="button-import">
+          <button
+            class="action"
+            nbButton
+            size="small"
+            (click)="onDownloadTemplates()"
+            >
+            <nb-icon icon="file-text-outline"></nb-icon>
+            {{ 'MENU.IMPORT_EXPORT.DOWNLOAD_TEMPLATES' | translate
+            }}
+          </button>
+        </div>
+        @if (!environment.DEMO) {
+          <div class="button-import">
+            <button
+              *ngxPermissionsOnly="[permissionsEnum.MIGRATE_GAUZY_CLOUD]"
+              class="action"
+              nbButton
+              size="small"
+              status="warning"
+              ngxPromptDialog
+              [inputType]="'password'"
+              [title]="'MENU.IMPORT_EXPORT.MIGRATE_TO_CLOUD' | translate"
+              [placeholder]="'FORM.PASSWORD' | translate"
+              [label]="'FORM.PASSWORD' | translate"
+              (callback)="onMigrateIntoCloud($event)"
+              >
+              <nb-icon icon="upload-outline"></nb-icon>
+              {{ 'MENU.IMPORT_EXPORT.MIGRATE_TO_CLOUD' | translate
+              }}
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+    <div class="row mt-4">
+      <div class="col-sm-12">
+        <div class="info">
+          {{ 'MENU.IMPORT_EXPORT.IMPORT_INFO' | translate }}
+        </div>
+        <div class="info">
+          {{ 'MENU.IMPORT_EXPORT.EXPORT_INFO' | translate }}
+        </div>
+        <div class="info">
+          {{ 'MENU.IMPORT_EXPORT.DOWNLOAD_TEMPLATES_INFO' | translate
+          }}
+        </div>
+        @if (!environment.DEMO) {
+          <div class="info">
+            {{ 'MENU.IMPORT_EXPORT.MIGRATE_TO_CLOUD_INFO' |
+            translate }}
+          </div>
+        }
+      </div>
+    </div>
+  </nb-card-body>
+</nb-card>
+<router-outlet></router-outlet>

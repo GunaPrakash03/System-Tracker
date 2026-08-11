@@ -1,0 +1,23 @@
+export const OrganizationProjectsPage = {
+	gridButtonCss: 'div.layout-switch > button',
+	selectTableRowCss: 'table > tbody > tr.angular2-smart-row',
+	tagsSelectCss: '#addTags',
+	tagsSelectOptionCss: '.ng-dropdown-panel .ng-option',
+	closeTagsMultiSelectDropdownCss: '.ng-select-container > .ng-arrow-wrapper',
+	selectEmployeeMultiSelectCss: 'nb-select:has-text("Add or Remove Employees")',
+	selectEmployeeDropdownOptionCss: '.option-list nb-option',
+	requestNewProjectButtonCss: 'button[status="success"]:has-text("Add")',
+	projectNameInputCss: '#name',
+	codeInputCss: '#code',
+	budgetInputCss: '[formcontrolname="budget"]',
+	projectDescriptionCss: '[formcontrolname="description"]',
+	tabButtonCss: 'span.tab-text',
+	saveProjectButtonCss: 'div.form-group > button[status="success"]',
+	editProjectButtonCss: 'button.action.primary',
+	deleteProjectButtonCss: 'button.action:has(nb-icon[icon="trash-2-outline"])',
+	confirmDeleteButtonCss: 'nb-card-footer > button[status="danger"]',
+	colorInputCss: '[formcontrolname="color"]',
+	footerCss: 'nb-card-body > div.form-group',
+	toastrMessageCss: 'nb-toast.ng-trigger',
+	verifyProjectCss: 'angular2-smart-table'
+};

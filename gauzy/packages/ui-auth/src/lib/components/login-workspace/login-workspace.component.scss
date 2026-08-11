@@ -1,0 +1,178 @@
+@use 'themes' as *;
+@use '@shared/reusable' as *;
+
+:host {
+  .section-wrapper {
+    width: 765px;
+    display: flex;
+    justify-content: space-between;
+    .-wrapper {
+      background: nb-theme(gauzy-card-2);
+      border-radius: nb-theme(border-radius);
+      padding: 30px;
+      width: 476px;
+      & > * {
+        padding-left: 15px;
+        padding-right: 15px;
+      }
+      & .svg-wrapper {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 57px;
+      }
+      & .title {
+        font-family: Inter;
+        font-size: 24px;
+        font-style: normal;
+        font-weight: 700;
+        line-height: 30px;
+        letter-spacing: 0em;
+        text-align: left;
+      }
+      & .sub-title {
+        width: 358px;
+        max-width: 100%;
+        // Same fixed-height flex box as forgot-password / reset-password: a
+        // two-line instruction overflowed it and crossed the divider below.
+        min-height: 34px;
+        font-family: 'Inter';
+        font-style: normal;
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 17px;
+        display: flex;
+        align-items: center;
+        text-align: start;
+        margin-bottom: 15px;
+      }
+      & .hr-div-strong {
+        @include hr-div-strong;
+      }
+      .form {
+        margin-top: 21px;
+        margin-bottom: 25px;
+        & .form-group {
+          margin-bottom: 16px;
+          & .label {
+            display: block;
+            margin-bottom: 8px;
+            font-family: Inter;
+            font-weight: 600;
+            font-size: 0.9375rem;
+            color: nb-theme(text-basic-color);
+            padding-left: 0;
+            text-transform: none;
+          }
+          ::ng-deep input.input-full-width {
+            border: 1px solid rgba(98, 54, 255, 0.5) !important;
+            background-color: transparent;
+            color: nb-theme(text-basic-color);
+          }
+        }
+        // Ensure consistent styling for ngx-password-form-field
+        ::ng-deep ngx-password-form-field {
+          .label {
+            display: block;
+            margin-bottom: 8px;
+            font-family: Inter;
+            font-weight: 600;
+            font-size: 0.9375rem;
+            color: nb-theme(text-basic-color);
+          }
+          input {
+            border: 1px solid rgba(98, 54, 255, 0.5) !important;
+            background-color: transparent;
+            color: nb-theme(text-basic-color);
+          }
+        }
+        & .submit-btn-wrapper {
+          display: flex;
+          justify-content: flex-end;
+          & .submit-btn {
+            @include submit-btn;
+            margin-bottom: 0;
+            margin-top: 15px;
+            padding: 13px 65px;
+            font-weight: 700;
+            text-transform: none;
+            letter-spacing: normal;
+            border-radius: 8px;
+            line-height: 20px;
+            transition: background-color 0.2s, border-color 0.2s;
+            // Disabled/Submitting state (MUST BE FIRST)
+            &[disabled],
+            &.btn-pulse {
+              cursor: not-allowed !important;
+              // Light theme: Visible grey with purple tint
+              @include nb-for-theme(default) {
+                background-color: rgba(98, 54, 255, 0.08) !important;
+                border-color: rgba(98, 54, 255, 0.25) !important;
+                color: rgba(98, 54, 255, 0.65) !important;
+              }
+              // Dark theme: Original subtle style
+              @include nb-for-theme(dark) {
+                background-color: nb-theme(background-basic-color-3) !important;
+                border-color: transparent !important;
+                color: nb-theme(text-hint-color) !important;
+              }
+              &:hover,
+              &:active,
+              &:focus {
+                @include nb-for-theme(default) {
+                  background-color: rgba(98, 54, 255, 0.08) !important;
+                  border-color: rgba(98, 54, 255, 0.25) !important;
+                  color: rgba(98, 54, 255, 0.65) !important;
+                }
+                @include nb-for-theme(dark) {
+                  background-color: nb-theme(background-basic-color-3) !important;
+                  border-color: transparent !important;
+                  color: nb-theme(text-hint-color) !important;
+                }
+              }
+            }
+            // Enabled state
+            &:not([disabled]):not(.btn-pulse) {
+              background-color: nb-theme(color-primary-default) !important;
+              border-color: nb-theme(color-primary-default) !important;
+              color: white !important;
+              &:hover,
+              &:active,
+              &:focus {
+                background-color: nb-theme(color-primary-hover) !important;
+                border-color: nb-theme(color-primary-hover) !important;
+                color: white !important;
+              }
+            }
+          }
+        }
+      }
+      .hr-div-soft {
+        @include hr-div-soft;
+      }
+      .redirect-link-p {
+        font-family: 'Inter';
+        font-style: normal;
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 17px;
+        /* identical to box height */
+        color: #7e7e8f;
+        margin-bottom: 0;
+        & .text-link {
+          font-family: Inter;
+          font-size: 14px;
+          font-style: normal;
+          font-weight: 600;
+          line-height: 17px;
+          letter-spacing: 0em;
+          color: nb-theme(color-primary-default);
+          text-decoration: none;
+          &:hover {
+            text-decoration: underline;
+          }
+        }
+      }
+    }
+  }
+}

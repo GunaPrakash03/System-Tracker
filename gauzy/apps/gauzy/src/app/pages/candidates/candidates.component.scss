@@ -1,0 +1,43 @@
+@use 'gauzy/_gauzy-table' as *;
+@use 'gauzy/_gauzy-cards' as *;
+@use '@shared/_pg-card' as *;
+
+.manage-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// REMOVED: a `:host .grid-scroll-container .flex-container .flex-item` block
+// describing a hand-rolled candidate card — `.avatar`, `.fullName`, `.email`,
+// `.status-badge` and four `.badge-*` fills. No template in the repo renders
+// `.flex-container`; the grid view goes through `<ga-card-grid>`, whose own
+// stylesheet is already token-based. So none of it ever applied, and what it
+// carried was `#e4e9f2` / `darkgray` / `color: black` / four literal status
+// fills — exactly the values a later theme sweep would waste time "fixing".
+
+:host {
+  nb-card-body {
+    height: calc($card-height - 0.25rem) !important;
+  }
+  ::ng-deep {
+    .toggle-label {
+      margin-bottom: 0;
+    }
+
+    [nbButton].header.appearance-outline.status-primary {
+      border-width: 0px;
+      align-items: center;
+      gap: 6px;
+    }
+  }
+
+  .custom-toggle {
+    ::ng-deep {
+      span.text {
+        color: nb-theme(text-primary-color);
+      }
+    }
+  }
+}

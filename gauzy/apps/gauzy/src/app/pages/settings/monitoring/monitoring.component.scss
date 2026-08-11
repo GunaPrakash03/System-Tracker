@@ -1,0 +1,292 @@
+@use 'themes' as *;
+@use 'var' as *;
+
+:host {
+  height: 100%;
+}
+
+// main sections
+//
+// Two problems, one rule. The card carries `.card-scroll`, so the page frame
+// already bounds it to the viewport — but this block re-derived a height of its
+// own from `100vh` minus a hand-tuned 19.25rem, a number measured against older
+// chrome and now wrong by the height of the breadcrumb trail the card header
+// gained. And it declared `overflow: hidden` immediately followed by
+// `overflow-y: scroll`, so the second won and painted a permanently visible
+// track whether or not there was anything to scroll.
+//
+// The column that is MEANT to scroll is `.accordion-section` — it reserves an 8px
+// gutter for its own scrollbar, and `.aside-nav` is `height: fit-content` so the
+// service list can stay put while the fields move. Fill the card body and clip
+// here; the accordion column does the scrolling. (At the `md` breakpoint the two
+// stack into a column and this becomes the scroll box instead — see below.)
+:host .main-form {
+  width: 100%;
+  background-color: nb-theme(gauzy-card-2);
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+  @include nb-ltr(padding-right, 8px);
+  @include nb-rtl(padding-left, 8px);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.aside-nav {
+  width: 220px;
+  min-width: 200px;
+  background-color: nb-theme(gauzy-card-3);
+  padding: 13px 18px;
+  border-radius: nb-theme(border-radius);
+  height: fit-content;
+
+  & .settings-section-header {
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: 17px;
+    letter-spacing: 0em;
+    text-align: left;
+    margin-bottom: 18px;
+  }
+
+  ul {
+    padding-left: 0;
+    padding-right: 0;
+    display: inline-flex;
+    flex-direction: column;
+    height: fit-content;
+
+    & li {
+      display: inline-flex;
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-style: normal;
+      font-weight: 400;
+      line-height: 16px;
+      letter-spacing: 0em;
+      text-align: left;
+      background: nb-theme(gauzy-sidebar-background-3);
+      border-radius: nb-theme(button-rectangle-border-radius);
+      list-style: none;
+      cursor: pointer;
+      box-shadow: 0px 1px 1px rgba(0, 0, 0, 0.15);
+
+      &.active {
+        background: nb-theme(background-basic-color-1);
+        box-shadow: 0px 1px 1px rgba(0, 0, 0, 0.15) inset;
+      }
+    }
+  }
+}
+
+.actions {
+  margin-bottom: 20px;
+}
+
+.fields-section {
+  width: calc(100% - 260px);
+}
+
+// Scope tabset styles
+.scope-tabset {
+  padding: 0;
+}
+
+// The page's one scroll box. The `- 3rem` in `max-height` cut the box short of
+// the column it sits in, so the accordion always stopped 3rem above the card's
+// bottom edge with a dead strip beneath it — room the fields could have used.
+// Now that `.main-form` clips rather than scrolls, the column IS the budget.
+:host .accordion-section {
+  overflow: auto;
+  max-height: 100%;
+  @include nb-ltr(padding-right, 8px);
+  @include nb-rtl(padding-left, 8px);
+}
+// end of main sections.
+
+// misc
+.form-group {
+  margin-bottom: 0;
+}
+
+.col-6 {
+  padding-left: 10px;
+  padding-right: 10px;
+  max-width: 49% !important;
+}
+
+// NOTE: a bare `.active { background: #ffffff }` used to sit here. The only
+// elements in this template that take `.active` are the service rows in
+// `.aside-nav`, which the rule above already paints with a theme token — so all
+// this one could ever do was drop a literal white block into the seven themes
+// where white is the wrong surface. Removed rather than mapped to a token: there is
+// nothing left for it to style.
+
+// start of nb-overrides
+nb-accordion {
+  box-shadow: none;
+
+  & nb-accordion-item-header {
+    border-bottom: none;
+    border-radius: 0.5rem;
+    padding-left: 20px;
+    padding-right: 20px;
+
+    & ::ng-deep nb-icon {
+      border-radius: 6px;
+      width: 23px;
+      height: 23px;
+      // Was `rgba(66, 66, 66, 0.2)` — 20% of the LIGHT theme's body colour, so
+      // the expand/collapse chevron lost its box entirely on the dark canvas.
+      // The shared hairline token darkens a light surface and lightens a dark
+      // one, which is the only way one value works in all eight themes.
+      border: 1px solid nb-theme(gauzy-border-default-color);
+    }
+  }
+
+  & nb-accordion-item-header,
+  nb-accordion-item-body,
+  nb-accordion-item {
+    background-color: nb-theme(gauzy-card-3);
+  }
+
+  & nb-accordion-item-body {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+
+  nb-accordion-item {
+    border-radius: 0.5rem;
+    margin-bottom: 20px;
+
+    & .item-body {
+      padding: 15px;
+    }
+
+    .fields {
+      width: 75%;
+
+      @include respond(md) {
+        width: 100%;
+      }
+    }
+
+    .row {
+      align-items: center;
+    }
+  }
+}
+// end of nb-overrides
+
+// start of ::ng-deep selectors
+:host ::ng-deep nb-select {
+  & ::ng-deep button {
+    margin-right: 10px;
+    background-color: nb-theme(background-basic-color-1) !important;
+    border-radius: nb-theme(border-radius) !important;
+  }
+}
+
+:host ::ng-deep nb-toggle {
+  padding: 10px;
+  border: 1px solid nb-theme(gauzy-border-default-color);
+  border-radius: nb-theme(border-radius);
+
+  & > label {
+    margin-bottom: 0;
+  }
+}
+
+:host ::ng-deep .toggle {
+  border: 1px solid #7e7e8f !important;
+  background-color: #7e7e8f !important;
+
+  &.checked {
+    background-color: nb-theme(text-primary-color) !important;
+    border: 1px solid nb-theme(text-primary-color) !important;
+
+    & + span {
+      color: nb-theme(text-primary-color);
+    }
+  }
+}
+
+:host ::ng-deep .ng-trigger {
+  overflow: visible !important;
+
+  & .item-body {
+    overflow: visible !important;
+    overflow-x: visible !important;
+  }
+}
+
+:host ::ng-deep .select-button {
+  margin: 0;
+}
+// end of ::ng-deep
+
+// media queries
+@include respond(md) {
+  .col-6 {
+    padding-right: 0;
+  }
+
+  // Stacked, the service list is no longer a column beside the fields, so the
+  // accordion column has no cross-axis height to bound its own scroll box. The
+  // whole pane scrolls as one instead — which is also what you want on a narrow
+  // screen, since the service list would otherwise take a fixed slice of it.
+  // `:host` prefix so this out-ranks the `overflow: hidden` above on specificity
+  // rather than on source order.
+  :host .main-form {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .aside-nav {
+    width: 100%;
+    margin-bottom: 20px;
+
+    ul {
+      display: inline;
+      height: auto;
+
+      & li {
+        margin-right: 7px;
+      }
+    }
+  }
+
+  .fields-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .actions {
+    order: 2;
+    margin-bottom: 0;
+  }
+}
+
+@include respond(sm) {
+  .col-6 {
+    max-width: 100%;
+    width: 100%;
+    min-width: 100%;
+    margin-bottom: 5px;
+  }
+
+  .row {
+    width: 100%;
+  }
+}
+
+.text-hint {
+  font-size: 12px;
+  color: nb-theme(text-hint-color);
+  margin-top: 4px;
+}

@@ -1,0 +1,20 @@
+@use 'gauzy/_gauzy-cards' as *;
+@use 'gauzy/_gauzy-overrides' as ga-overrides;
+
+.text-editors {
+	/* combine left/right paddings */
+	padding: 0 15px;
+}
+:host {
+  @include nb-card-overrides(
+    overlay,
+    calc($default-card-height + 3.5rem),
+    $default-radius
+  );
+  nb-card,
+  nb-card-body,
+  nb-card-footer {
+    background-color: var(--gauzy-card-2);
+  }
+  @include ga-overrides.input-appearance(42px, var(--gauzy-card-1));
+}

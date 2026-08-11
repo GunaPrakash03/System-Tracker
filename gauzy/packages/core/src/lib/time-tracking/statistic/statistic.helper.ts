@@ -1,0 +1,138 @@
+import { DatabaseTypeEnum } from '@gauzy/config';
+import { prepareSQLQuery as p } from './../../database/database.helper';
+
+/**
+ * Generates a duration query string based on the provided database type, log query alias, and slot query alias.
+ *
+ * @param dbType The type of database (e.g., sqlite, postgres, mysql).
+ * @param logQueryAlias The alias used for the log query.
+ * @param slotQueryAlias The alias used for the slot query.
+ * @returns A string representing the duration query.
+ */
+export const getDurationQueryString = (dbType: string, logQueryAlias: string, slotQueryAlias: string): string => {
+	switch (dbType) {
+		case DatabaseTypeEnum.sqlite:
+		case DatabaseTypeEnum.betterSqlite3:
+			return `COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN (julianday(COALESCE("${logQueryAlias}"."stoppedAt", datetime('now'))) -
+								  julianday("${logQueryAlias}"."startedAt")) * 86400 >= 0
+							THEN (julianday(COALESCE("${logQueryAlias}"."stoppedAt", datetime('now'))) -
+								  julianday("${logQueryAlias}"."startedAt")) * 86400
+							ELSE 0
+						END
+					) / COUNT("${slotQueryAlias}"."id")
+				), 0
+			)`;
+		case DatabaseTypeEnum.postgres:
+			return `COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN extract(epoch from (COALESCE("${logQueryAlias}"."stoppedAt", NOW()) - "${logQueryAlias}"."startedAt")) >= 0
+							THEN extract(epoch from (COALESCE("${logQueryAlias}"."stoppedAt", NOW()) - "${logQueryAlias}"."startedAt"))
+							ELSE 0
+						END
+					) / COUNT("${slotQueryAlias}"."id")
+				), 0
+			)`;
+		case DatabaseTypeEnum.mysql:
+			return p(`COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN TIMESTAMPDIFF(SECOND, \`${logQueryAlias}\`.\`startedAt\`, COALESCE(\`${logQueryAlias}\`.\`stoppedAt\`, NOW())) >= 0
+							THEN TIMESTAMPDIFF(SECOND, \`${logQueryAlias}\`.\`startedAt\`, COALESCE(\`${logQueryAlias}\`.\`stoppedAt\`, NOW()))
+							ELSE 0
+						END
+					) / COUNT(\`${slotQueryAlias}\`.\`id\`)
+				), 0
+			)`);
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`);
+	}
+};
+
+/**
+ * Generates a SQL query string for calculating the total duration of tasks across all time.
+ * The query varies depending on the database type.
+ *
+ * @param dbType The type of the database (e.g., SQLite, PostgreSQL, MySQL).
+ * @param queryAlias The alias used for the table in the SQL query.
+ * @returns The SQL query string for calculating task total duration.
+ */
+export const getTotalDurationQueryString = (dbType: string, queryAlias: string): string => {
+	switch (dbType) {
+		case DatabaseTypeEnum.sqlite:
+		case DatabaseTypeEnum.betterSqlite3:
+			return `COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN (julianday(COALESCE("${queryAlias}"."stoppedAt", datetime('now'))) -
+								  julianday("${queryAlias}"."startedAt")) * 86400 >= 0
+							THEN (julianday(COALESCE("${queryAlias}"."stoppedAt", datetime('now'))) -
+								  julianday("${queryAlias}"."startedAt")) * 86400
+							ELSE 0
+						END
+					)
+				), 0
+			)`;
+		case DatabaseTypeEnum.postgres:
+			return `COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN extract(epoch from (COALESCE("${queryAlias}"."stoppedAt", NOW()) - "${queryAlias}"."startedAt")) >= 0
+							THEN extract(epoch from (COALESCE("${queryAlias}"."stoppedAt", NOW()) - "${queryAlias}"."startedAt"))
+							ELSE 0
+						END
+					)
+				), 0
+			)`;
+		case DatabaseTypeEnum.mysql:
+			return p(`COALESCE(
+				ROUND(
+					SUM(
+						CASE
+							WHEN TIMESTAMPDIFF(SECOND, \`${queryAlias}\`.\`startedAt\`, COALESCE(\`${queryAlias}\`.\`stoppedAt\`, NOW())) >= 0
+							THEN TIMESTAMPDIFF(SECOND, \`${queryAlias}\`.\`startedAt\`, COALESCE(\`${queryAlias}\`.\`stoppedAt\`, NOW()))
+							ELSE 0
+						END
+					)
+				), 0
+			)`);
+		default:
+			throw Error(`Unsupported database type: ${dbType}`);
+	}
+};
+
+/**
+ * Generates the SQL query string for filtering activity duration based on database type.
+ *
+ * Filters on the indexed `recordedAt` timestamp column instead of a non-sargable
+ * `concat(date, time)::timestamp` expression. The old form had to compute the value for every
+ * row, so it could not use an index and forced a full scan of the (very large) activity table.
+ * `recordedAt` holds the same instant (date + time) and is covered by the
+ * (organizationId, employeeId, recordedAt) / (organizationId, recordedAt) indexes, turning the
+ * range filter into an index range scan. Since it is a plain column comparison, the per-dialect
+ * concat/cast branching is no longer needed — only identifier quoting differs, handled by `p()`.
+ *
+ * @param dbType The type of the database (e.g., sqlite, postgres, mysql).
+ * @param queryAlias The alias used for the query table in SQL.
+ * @returns The SQL query string for filtering activity duration.
+ */
+export const getActivityDurationQueryString = (dbType: string, queryAlias: string): string => {
+	switch (dbType) {
+		case DatabaseTypeEnum.sqlite:
+		case DatabaseTypeEnum.betterSqlite3:
+		case DatabaseTypeEnum.postgres:
+			return `"${queryAlias}"."recordedAt" BETWEEN :start AND :end`;
+		case DatabaseTypeEnum.mysql:
+			return p(`"${queryAlias}"."recordedAt" BETWEEN :start AND :end`);
+		default:
+			throw Error(`cannot create statistic query due to unsupported database type: ${dbType}`);
+	}
+};

@@ -1,0 +1,237 @@
+@use 'gauzy/_gauzy-table' as *;
+
+.global {
+  display: flex;
+  gap: 12px;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.overflow {
+  overflow: auto;
+}
+
+.head {
+  padding-bottom: 0;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  height: auto;
+}
+
+.base-button {
+  max-height: 40px;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: row;
+}
+
+.create-at {
+  margin-left: 100px;
+  display: flex;
+  flex-direction: row;
+}
+
+.icon {
+  font-size: 13px;
+  margin-right: 0.1rem;
+  margin-top: 0.3rem;
+}
+
+.articles {
+  margin: 0 10px;
+  color: var(--gauzy-text-color-2);
+}
+
+.header-article {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: row;
+}
+
+.row-name {
+  display: flex;
+  flex-direction: row;
+}
+
+// The DRAFT pill sat beside the EMPLOYEES (`.privacy`) pill with a hard-coded
+// `#aaaeb3` fill while the control beside it already resolved `--color-primary-default`
+// — the one chip on the page that ignored the theme, and white-on-#aaaeb3 is
+// 2.2:1 besides. DRAFT is not a status with a colour, it is the ABSENCE of
+// publication, so it reads as a neutral chip now: the same low-alpha tint the
+// rest of the app uses for a quiet fill, with ordinary body text on it. Works
+// out on both the light card and the near-black one, and stays visibly
+// subordinate to the filled purple pill next to it.
+.draft {
+  padding: 0 0.4rem;
+  color: var(--text-basic-color);
+  background-color: var(--gauzy-active-tint, rgba(126, 126, 143, 0.2));
+  margin-left: 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  width: auto;
+  text-align: center;
+}
+
+// Filled with the theme primary already; only the label was a literal `#fff`.
+// `--text-control-color` is Nebular's token for text on a filled status chip
+// (it is `#ffffff` in every registered theme, so nothing moves here).
+.privacy {
+  padding: 0 0.4rem;
+  color: var(--text-control-color);
+  background-color: var(--color-primary-default);
+  margin-left: 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  width: auto;
+  text-align: center;
+}
+
+.name {
+  padding-bottom: 0.1rem;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 19px;
+  letter-spacing: 0em;
+  text-align: left;
+}
+
+.data {
+  padding-bottom: 0.5rem;
+}
+
+.image-wrap {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  margin: -1rem 0 0 1rem;
+  flex-wrap: wrap;
+}
+
+.author-image-small {
+  max-width: 30px;
+  max-height: 30px;
+  border-radius: 50%;
+  margin: 4px;
+}
+
+.row-search {
+  width: 80%;
+  padding: 10px;
+  border-radius: var(--border-radius);
+  background-color: var(--gauzy-card-2);
+}
+
+.clear-button {
+  margin: 0 1rem 1rem 1rem;
+}
+
+.search-input {
+  max-width: 100% !important;
+}
+
+h6 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 19px;
+  letter-spacing: 0em;
+  text-align: left;
+
+  &.articles {
+    font-weight: 400;
+  }
+}
+
+:host {
+  nb-card,
+  nb-card-body {
+    background-color: var(--gauzy-card-2);
+  }
+
+  nb-card {
+    margin: 0;
+  }
+
+  .custom-table {
+    background-color: var(--gauzy-card-1);
+    border-radius: var(--border-radius);
+    padding: 1rem 0.75rem 0;
+    max-height: 100%;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 17px;
+    letter-spacing: 0em;
+    text-align: left;
+    cursor: pointer;
+
+    // Selection marker. Was a DARKENING overlay — rgba(50,50,50,.1) for the
+    // left bar and rgba(50,50,50,.03) for the fill — which is invisible on the
+    // near-black `gauzy-dark` canvas, and darker than the `--gauzy-card-2`
+    // hover fill below it, so a hovered row read as "more selected" than the
+    // selected one. `--gauzy-active-tint` is the registered token for exactly
+    // this (a neutral at twice the hover alpha, so it darkens a light surface
+    // and lightens a dark one) and is what the sidebar's current row uses.
+    &.selected {
+      box-shadow: -8px 0px 0px 0px var(--gauzy-active-tint, rgba(126, 126, 143, 0.2));
+      background: var(--gauzy-active-tint, rgba(126, 126, 143, 0.2));
+    }
+
+    &:hover:not(.selected) {
+      background: var(--gauzy-card-2);
+    }
+  }
+
+  nb-card-body {
+    padding: 1rem 0.5rem;
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
+  }
+
+  .table-scroll {
+    height: calc(100vh - 21rem);
+    padding: 0.5rem;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    row-gap: 8px;
+    border-radius: var(--border-radius);
+
+    &.filter {
+      height: calc(100vh - 28.7rem);
+    }
+  }
+
+  // The empty state stands in for `.table-scroll`, so it has to measure the
+  // same box. It was 6rem TALLER (`100vh - 15rem` against the list's
+  // `100vh - 21rem`), which showed up twice: as a direct child of the card body
+  // it made an empty Help Center card taller than a full one, and in the
+  // `@empty` branch — where it renders INSIDE `.table-scroll` — it forced that
+  // container into a 6rem scroll just to show "no matching articles".
+  // `max-height: 100%` bounds it whenever the parent has a definite height
+  // (the nested case) and resolves to `none` when it does not (the card-body
+  // case), the same treatment `.card-scroll` gets in styles/_overrides.scss.
+  .no-data {
+    height: calc(100vh - 21rem);
+    max-height: 100%;
+    padding: 0 0.5rem;
+  }
+
+  ::ng-deep ngx-avatar {
+    img {
+      height: 24px !important;
+      width: 24px !important;
+    }
+  }
+}

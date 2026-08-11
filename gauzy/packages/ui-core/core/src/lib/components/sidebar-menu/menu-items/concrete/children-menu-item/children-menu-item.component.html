@@ -1,0 +1,52 @@
+<ng-container *ngxPermissionsOnly="item?.data?.permissionKeys">
+	@if (!collapse) { @if (!item?.hidden) {
+	<div
+		[gaTooltip]="item?.title"
+		[icon]="item?.icon"
+		[class]="(selected ? 'selected ' : '') + (!collapse ? 'custom ' : '') + 'sub-item'"
+		(click)="select()"
+	>
+		<span class="info">
+			<i [class]="item?.icon"></i>
+			@if (collapse || mouseHover) {
+			<span>
+				<a [href]="getExternalUrl(item?.link)" onclick="return false;">
+					{{ item?.title }}
+				</a>
+			</span>
+			}
+		</span>
+	</div>
+	} } @else { @if (!item?.hidden) {
+	<div
+		[nbTooltip]="item?.title"
+		nbTooltipPlacement="right"
+		[class]="(selected ? 'sub-item selected' : 'sub-item') + (!collapse ? ' custom' : '')"
+	>
+		<span (click)="select()" class="info">
+			<i [class]="item?.icon"></i>
+			@if (collapse || mouseHover) {
+			<span>
+				<a [href]="getExternalUrl(item?.link)" onclick="return false;">
+					{{ item?.title }}
+				</a>
+			</span>
+			}
+		</span>
+		@if (item?.data?.add) {
+		<button
+			class="plus"
+			type="button"
+			status="basic"
+			outline
+			size="tiny"
+			[attr.aria-label]="'MENU.ADD_ITEM' | translate: { name: item?.title }"
+			(click)="add()"
+			nbButton
+		>
+			<i class="fas fa-plus" aria-hidden="true"></i>
+		</button>
+		}
+	</div>
+	} }
+</ng-container>

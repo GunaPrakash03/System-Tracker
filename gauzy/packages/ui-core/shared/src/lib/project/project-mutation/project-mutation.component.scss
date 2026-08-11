@@ -1,0 +1,165 @@
+// Import Gauzy dialogs styles
+@use 'gauzy/_gauzy-dialogs' as *;
+
+// Define styles for the .project-toggle class
+.project-toggle {
+	margin-top: 20px;
+}
+
+// Define styles for the .action-buttons class
+.action-buttons {
+	display: flex;
+	justify-content: flex-start;
+}
+
+:host ::ng-deep {
+	nb-card {
+		// Apply margins based on language direction
+		@include nb-rtl(margin, -16px -18px -16px -8px);
+		@include nb-ltr(margin, -16px -8px -16px -18px);
+
+		nb-card-body {
+			padding: 0;
+			// `--gauzy-card-2` is NOT registered by the material-light /
+			// material-dark themes (themes.scss only gives them
+			// gauzy-primary-background / sidebar / border-table), so a bare
+			// var() there resolves to nothing and the browser drops the whole
+			// declaration — the tab body and the action bar lose their panel
+			// and sit on the raw card. Fallback keeps a neutral panel tint.
+			nb-tab.content-active, .action-buttons {
+				background-color: var(--gauzy-card-2, rgba(126, 126, 143, 0.08));
+				margin: 0;
+			}
+
+			nb-tab.content-active {
+				height: calc(100vh - 22.5rem);
+			}
+
+			.action-buttons {
+				padding: 1rem 2rem;
+				border-radius: 0 0 var(--border-radius) var(--border-radius);
+			}
+
+			// Override background color for specific elements
+			input, nb-select.appearance-outline.status-basic .select-button, .ng-select .ng-select-container {
+				background-color: var(--background-basic-color-1) !important;
+			}
+
+			.ng-select .ng-select-container {
+				input {
+					background-color: unset !important;
+				}
+			}
+		}
+	}
+
+	nb-toggle {
+		div.checked+span.text {
+			color: var(--text-primary-color);
+		}
+		// Same story as `--gauzy-card-2` above: `--gauzy-text-color-2` is
+		// undefined in the two material themes, so without a fallback the
+		// declaration is dropped and the label keeps the inherited color.
+		div+span.text {
+			color: var(--gauzy-text-color-2, var(--text-hint-color));
+		}
+	}
+
+	label {
+		font-size: 14px;
+		font-weight: 600;
+		line-height: 11px;
+		letter-spacing: 0em;
+		text-align: left;
+		color: var(--gauzy-text-color-2, var(--text-hint-color));
+	}
+}
+
+// Define styles for the .project-tab-container class
+.project-tab-container {
+	display: flex;
+	gap: 1rem;
+
+	.project-form-container {
+		width: 65%;
+	}
+}
+
+// Define styles for the .project-image-container class
+.project-image-container {
+	transition: transform 150ms ease-in-out;
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	margin-right: 3rem;
+
+	.project-image-photo {
+		width: fit-content;
+		height: 294px;
+		position: relative;
+
+		.image-overlay {
+			pointer-events: none;
+			background: black;
+			position: absolute;
+			height: 100%;
+			width: 100%;
+			border-radius: nb-theme(border-radius);
+		}
+
+		img,
+		.image {
+			width: 299px;
+			height: 294px;
+			object-fit: cover;
+			border-radius: nb-theme(border-radius);
+		}
+
+		.image {
+			background-color: rgba(126, 126, 143, 0.1);
+
+			i {
+				margin: 5px;
+			}
+
+			>span {
+				// Was the literal rgba(126, 126, 143, 1), which is exactly the
+				// light-theme value of `gauzy-text-color-2` — so the "Add or
+				// Drop Image" hint stayed dark gray on the dark themes. Token
+				// first, that same literal kept as the fallback.
+				color: var(--gauzy-text-color-2, rgba(126, 126, 143, 1));
+				z-index: 2;
+				transition: opacity 0.2s ease-in;
+				position: absolute;
+				top: calc(50% - 16px / 2);
+				left: calc(50% - 141px / 2);
+			}
+		}
+
+		svg {
+			z-index: 2;
+			transition: opacity 0.2s ease-in;
+			opacity: 0.3;
+			position: absolute;
+			top: calc(50% - 68px / 2);
+			left: calc(50% - 68px / 2);
+
+			g circle {
+				fill: var(--text-primary-color);
+			}
+		}
+	}
+}
+
+:host {
+	::ng-deep ngx-image-uploader input {
+		height: 100% !important;
+	}
+
+	// Apply dialog styles. Second argument is the input background — it is
+	// applied with `!important`, so on material-light / material-dark (where
+	// `--gauzy-card-1` is not registered) the declaration is dropped entirely
+	// and the inputs go back to Nebular's own color. Fall back to the card
+	// color those themes DO define.
+	@include dialog(transparent, var(--gauzy-card-1, var(--card-background-color)));
+}

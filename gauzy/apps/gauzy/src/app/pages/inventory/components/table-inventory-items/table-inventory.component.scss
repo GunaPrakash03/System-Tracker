@@ -1,0 +1,6 @@
+@use '@shared/_pg-card' as *;
+@forward '../manage-product-types/product-types.component';
+
+:host nb-card-body {
+  height: calc($card-height - 0.5rem) !important;
+}
