@@ -251,7 +251,7 @@ export class EmailHistoryComponent extends TranslationBaseComponent implements O
 		} else if (organizationContact) {
 			return organizationContact.imageUrl;
 		} else if (!email.user) {
-			return '../../../../assets/images/logos/ever.jpg';
+			return '../../../../assets/images/logos/logo_young_globes.png';
 		} else {
 			return '../../../../assets/images/avatars/avatar-default.svg';
 		}

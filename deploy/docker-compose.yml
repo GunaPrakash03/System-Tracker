@@ -72,7 +72,7 @@ services:
       APP_NAME: Young Globes Workspace
       APP_SIGNATURE: Young Globes
       APP_LINK: ${PUBLIC_URL:-http://localhost:8080}
-      APP_LOGO: ${PUBLIC_URL:-http://localhost:8080}/assets/images/logos/logo_Gauzy.png
+      APP_LOGO: ${PUBLIC_URL:-http://localhost:8080}/assets/images/logos/logo_young_globes.png
     volumes:
       # Screenshots and uploads under FILE_PROVIDER=LOCAL. Without this they are
       # lost on every container replacement.
@@ -131,10 +131,11 @@ services:
       DESKTOP_APP_DOWNLOAD_LINK_LINUX: ''
       MOBILE_APP_DOWNLOAD_LINK: ''
       EXTENSION_DOWNLOAD_LINK: ''
-      # Logos still point at the Gauzy artwork — replace the files under
-      # gauzy/apps/gauzy/src/assets/images/logos/ and repoint these.
-      PLATFORM_LOGO: ${PLATFORM_LOGO:-assets/images/logos/logo_Gauzy.svg}
-      NO_INTERNET_LOGO: ${NO_INTERNET_LOGO:-assets/images/logos/logo_Gauzy.svg}
+      # The Young Globes "Y." mark. These are paths inside the served bundle,
+      # so a new asset file needs a rebuild; repointing the variable does not.
+      PLATFORM_LOGO: ${PLATFORM_LOGO:-assets/images/logos/logo_young_globes.png}
+      NO_INTERNET_LOGO: ${NO_INTERNET_LOGO:-assets/images/logos/logo_young_globes.png}
+      GAUZY_DESKTOP_LOGO_512X512: assets/images/logos/logo_young_globes_512x512.png
     ports:
       # The one endpoint. Left side is what the world sees; 4200 is hardcoded in
       # nginx.compose.conf and is not worth changing.

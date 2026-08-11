@@ -74,11 +74,38 @@ A blanket find-and-replace would also collide with upstream on every future
 `git subtree pull`. Most of these strings sit on pages the feature trim in
 `config/minimal-tracking-features.sql` hides anyway.
 
-**Still outstanding: the artwork.** `PLATFORM_LOGO` and `NO_INTERNET_LOGO` still
-point at `assets/images/logos/logo_Gauzy.svg`, and `favicon.ico` is unchanged.
-Drop replacement files into `gauzy/apps/gauzy/src/assets/images/logos/` and
-repoint the two variables in `deploy/docker-compose.yml` — no rebuild needed for
-the variables, though a new asset file does need one.
+### The artwork
+
+The mark is the Young Globes **"Y."** — a white monogram on a full-bleed black
+square. The original is kept at `dashboard-mods/brand/logo-source.avif` so the
+assets can be regenerated; the derived files are:
+
+| File | Size | Used by |
+|---|---|---|
+| `gauzy/apps/gauzy/src/assets/images/logos/logo_young_globes.png` | 128×128 | `PLATFORM_LOGO`, `NO_INTERNET_LOGO`, `APP_LOGO`, and the hardcoded fallbacks in `gauzy-logo.component.html` |
+| `…/logo_young_globes_512x512.png` | 512×512 | `GAUZY_DESKTOP_LOGO_512X512` |
+| `gauzy/apps/gauzy/src/favicon.ico` | 16/32/48/64 | browser tab |
+
+Two things worth knowing about the source, since neither is fixable downstream:
+
+- **It is 128×128.** That is ample for the header and the favicon, but the
+  512×512 is a 4× upscale and will look soft next to a native-resolution icon.
+  A larger original — or an SVG — would replace it cleanly; nothing but the
+  files needs to change.
+- **It has no transparency**, and the black is full-bleed to the corners. On the
+  light theme it reads as a black tile, which is a normal look for a monogram
+  mark; on the dark theme it blends into the background. If you would rather it
+  adapt to the theme, supply a version with a transparent background — that is a
+  design decision, so the mark was installed exactly as given.
+
+The AVIF could not be converted by the usual means: Pillow 10.2 here has no AVIF
+decoder and there is no `convert`, `ffmpeg` or `avifdec` on the box. It was
+rendered through **headless Chrome** (`/opt/google/chrome/chrome --headless=new
+--screenshot`), which is the same Chrome already used to drive Playwright checks.
+
+The desktop, agent and server apps under `gauzy/apps/*/src/assets/icons/` still
+carry Gauzy artwork. They are not built or deployed here — the screenshot agent
+is the separately installed Gauzy Agent — so they were left alone.
 
 Change #4 renders a page whose **data lives in `admin/settings_app.py`**, not in Gauzy —
 Gauzy has no per-employee screenshot interval, no media-as-idle rule and no
