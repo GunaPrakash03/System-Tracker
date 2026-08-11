@@ -1,3 +1,41 @@
+// Page frame.
+//
+// The page rendered as a single tall card that ran off the bottom of the screen
+// with nothing to scroll: document scrollHeight was the viewport's 950px while
+// the card measured 1572px, so the app list below the fold was unreachable and
+// the area under it painted blank. It reads as "the page went blank", which is
+// how it was reported.
+//
+// This page is a CHILD of the settings shell (settings.routes.ts), so it renders
+// inside `.settings-content`, which is already `height: 100%` of the shell and
+// already short by the footer. Fill that box rather than re-deriving its height
+// with a `calc(100vh - Xrem)` constant — the constant is what put the
+// roles-permissions page wrong, and the reasoning is written up in
+// roles-permissions.component.scss.
+//
+// `height: 100%` on both the host and the root card is what makes the chain
+// definite: a block box with a definite height resolves a percentage height on
+// its child, so nb-card-body can then scroll internally instead of the card
+// growing without limit.
+:host {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+
+	> nb-card {
+		flex: 1 1 auto;
+		height: 100%;
+		min-height: 0;
+		margin-bottom: 0;
+
+		// Nebular already gives this `overflow-y: auto`; what it lacked was an
+		// ancestor with a definite height to scroll WITHIN.
+		> nb-card-body {
+			min-height: 0;
+		}
+	}
+}
+
 // Chart palette. Both modes were validated with the dataviz palette checker
 // against the surfaces they actually render on (#ffffff light, #222b45 dark):
 // lightness band, chroma floor, CVD separation, normal-vision floor and
