@@ -3,7 +3,8 @@ import { ActivatedRoute, QueryParamsHandling } from '@angular/router';
 import { tap } from 'rxjs';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
 import { PermissionsEnum } from '@gauzy/contracts';
-import { PageTabRegistryService, PageTabsetPageId, RouteUtil } from '@gauzy/ui-core/core';
+import { EmployeesService, PageTabRegistryService, PageTabsetPageId, RouteUtil, Store } from '@gauzy/ui-core/core';
+import { firstValueFrom } from 'rxjs';
 
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -21,12 +22,15 @@ export class ActivityLayoutComponent implements OnInit, OnDestroy {
 		private readonly _route: ActivatedRoute,
 		private readonly _cdr: ChangeDetectorRef,
 		private readonly _routeUtil: RouteUtil,
-		private readonly _pageTabRegistryService: PageTabRegistryService
+		private readonly _pageTabRegistryService: PageTabRegistryService,
+		private readonly _employeesService: EmployeesService,
+		private readonly _store: Store
 	) {}
 
 	ngOnInit(): void {
 		// Register the page tabs
 		this.registerPageTabs();
+		this.selectEmployeeFromUrl();
 
 		this._routeUtil.data$
 			.pipe(
@@ -41,12 +45,96 @@ export class ActivityLayoutComponent implements OnInit, OnDestroy {
 	}
 
 	/**
+	 * Puts the employee named in the URL into the shared selector.
+	 *
+	 * This is what makes a per-employee view linkable. Every tab under here reads
+	 * `store.selectedEmployee$` — the header dropdown is its only other writer —
+	 * so setting it from the URL leaves all seven components untouched while
+	 * making the address the source of truth. Repointing each component at a
+	 * route parameter instead would have meant editing the data-loading path of
+	 * seven pages, which is precisely where this project's defects have come
+	 * from.
+	 *
+	 * A QUERY parameter, not a path segment: the tabs already declare
+	 * `queryParamsHandling: 'merge'`, so ?employeeId carries across a tab switch
+	 * for free, and /pages/employees/activity/screenshots keeps working without
+	 * an employee for the sidebar link. docs/employee-activity-pages.md describes
+	 * a /:employeeId/ path; this is the same guarantee with no route surgery.
+	 *
+	 * Silent on failure by design. A stale or deleted id should leave whatever
+	 * the header already had rather than blanking the page — an empty report is
+	 * indistinguishable from a broken one, which this codebase has learned twice.
+	 */
+	private async selectEmployeeFromUrl(): Promise<void> {
+		const employeeId = this._route.snapshot.queryParamMap.get('employeeId');
+		if (!employeeId || this._store.selectedEmployee?.id === employeeId) {
+			return;
+		}
+		try {
+			const employee: any = await firstValueFrom(
+				this._employeesService.getEmployeeById(employeeId, ['user'])
+			);
+			if (!employee) return;
+			this._store.selectedEmployee = {
+				id: employee.id,
+				firstName: employee.user?.firstName,
+				lastName: employee.user?.lastName,
+				fullName: employee.user?.name,
+				imageUrl: employee.user?.imageUrl,
+				tags: employee.tags || []
+			} as any;
+		} catch {
+			// See the note above: leave the existing selection alone.
+		}
+	}
+
+	/**
 	 * Registers page tabs for the timesheet module.
 	 * Ensures that tabs are registered only once.
 	 *
 	 * @returns {void}
 	 */
 	registerPageTabs(): void {
+		// The three views that used to live only under My work. Registered first
+		// so an employee opens on Productivity — the summary — rather than on a raw
+		// activity list.
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'productivity',
+			tabsetType: 'route',
+			tabTitle: () => 'Productivity',
+			responsive: true,
+			route: '/pages/employees/activity/productivity',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: -3,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'app-categories',
+			tabsetType: 'route',
+			tabTitle: () => 'App categories',
+			responsive: true,
+			route: '/pages/employees/activity/app-categories',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: -2,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'apps-urls',
+			tabsetType: 'route',
+			tabTitle: () => 'Apps & URLs',
+			responsive: true,
+			route: '/pages/employees/activity/apps-urls',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: -1,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+
 		// Register the time-activity tab
 		this._pageTabRegistryService.registerPageTab({
 			tabsetId: this.tabsetId, // The identifier for the tabset

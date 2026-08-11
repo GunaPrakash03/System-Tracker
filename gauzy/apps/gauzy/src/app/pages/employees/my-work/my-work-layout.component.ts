@@ -110,6 +110,45 @@ export class MyWorkLayoutComponent implements OnInit, AfterViewInit {
 
 		this._pageTabRegistryService.registerPageTab({
 			tabsetId: this.tabsetId,
+			tabId: 'apps',
+			tabsetType: 'route',
+			tabTitle: () => 'App',
+			responsive: true,
+			route: '/pages/employees/my-work/apps',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: 5,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'urls',
+			tabsetType: 'route',
+			tabTitle: () => 'Visited sites',
+			responsive: true,
+			route: '/pages/employees/my-work/urls',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: 6,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
+			tabId: 'screenshots',
+			tabsetType: 'route',
+			tabTitle: () => 'Screenshots',
+			responsive: true,
+			route: '/pages/employees/my-work/screenshots',
+			queryParamsHandling: 'merge' as QueryParamsHandling,
+			activeLinkOptions: { exact: false },
+			order: 7,
+			permissions: [PermissionsEnum.ORG_EMPLOYEES_VIEW]
+		});
+
+		this._pageTabRegistryService.registerPageTab({
+			tabsetId: this.tabsetId,
 			tabId: 'app-usage',
 			tabsetType: 'route',
 			tabTitle: () => 'App usage',

@@ -209,6 +209,24 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 	 * Selects an employee based on the given parameters.
 	 * @param param0 Object containing selection information.
 	 */
+	/**
+	 * Row click — select, then open that employee's activity.
+	 *
+	 * Separate from selectEmployee() on purpose. edit() and delete() call that
+	 * method internally to set the current row before acting; navigating from
+	 * inside it would send the page away mid-action. Only a genuine click from
+	 * the table reaches here.
+	 */
+	onRowSelect({ isSelected, data }): void {
+		this.selectEmployee({ isSelected, data });
+		if (isSelected && data?.id) {
+			this._router.navigate(['/pages/employees/activity/productivity'], {
+				queryParams: { employeeId: data.id },
+				queryParamsHandling: 'merge'
+			});
+		}
+	}
+
 	selectEmployee({ isSelected, data }): void {
 		// Update selected employee and button state
 		this.selectedEmployee = isSelected ? data : null;
@@ -286,7 +304,16 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 
 		const employee = selectedItem ?? this.selectedEmployee;
 		if (employee) {
-			this._router.navigate(['/pages/employees/view', employee.id]);
+			// Straight to this employee's activity, not the HR profile page. The
+			// list exists to answer tracking questions, so the useful destination
+			// is Productivity for that person — and the id travels as a query
+			// param, which the activity tabs already carry between themselves
+			// (queryParamsHandling: 'merge'), so the view stays linkable and
+			// survives a refresh.
+			this._router.navigate(['/pages/employees/activity/productivity'], {
+				queryParams: { employeeId: employee.id },
+				queryParamsHandling: 'merge'
+			});
 		}
 	}
 

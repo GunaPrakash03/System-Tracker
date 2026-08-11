@@ -99,6 +99,53 @@ const routes: Routes = [
 				}
 			},
 			{
+				// The three Time & Activity views, so My work carries the same set as
+				// the per-employee page. Same guard as the rest: an employee sees
+				// Productivity and nothing else.
+				path: 'apps',
+				canActivate: [PermissionsGuard],
+				data: {
+					permissions: {
+						only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+						redirectTo: '/pages/employees/my-work/productivity'
+					}
+				},
+				loadChildren: () =>
+					import('../../reports/apps-urls-report/apps-urls-report.module').then((m) => m.AppsUrlsReportModule)
+			},
+			{
+				path: 'urls',
+				canActivate: [PermissionsGuard],
+				data: {
+					permissions: {
+						only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+						redirectTo: '/pages/employees/my-work/productivity'
+					}
+				},
+				loadChildren: () =>
+					import('../../reports/apps-urls-report/apps-urls-report.module').then((m) => m.AppsUrlsReportModule)
+			},
+			{
+				path: 'screenshots',
+				canActivate: [PermissionsGuard],
+				data: {
+					permissions: {
+						only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+						redirectTo: '/pages/employees/my-work/productivity'
+					},
+					datePicker: {
+						unitOfTime: 'day',
+						isLockDatePicker: true,
+						isSaveDatePicker: false,
+						isSingleDatePicker: true,
+						isDisableFutureDate: true
+					}
+				},
+				resolve: { dates: DateRangePickerResolver, bookmarkParams: BookmarkQueryParamsResolver },
+				loadChildren: () =>
+					import('../activity/screenshot/screenshot.module').then((m) => m.ScreenshotModule)
+			},
+			{
 				path: 'app-usage',
 				component: AppUsageComponent,
 				canActivate: [PermissionsGuard],

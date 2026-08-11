@@ -19,6 +19,8 @@ import { ActivityLayoutComponent } from './layout/layout.component';
 import { AppUrlActivityComponent } from './app-url-activity/app-url-activity.component';
 import { AppUsageComponent } from './app-usage/app-usage.component';
 import { AppUsageModule } from './app-usage/app-usage.module';
+import { AppCategoriesComponent } from '../app-categories/app-categories.component';
+import { AppCategoriesModule } from '../app-categories/app-categories.module';
 
 @NgModule({
 	imports: [
@@ -33,6 +35,7 @@ import { AppUsageModule } from './app-usage/app-usage.module';
 		TranslateModule.forChild(),
 		ActivityItemModule,
 		AppUsageModule,
+		AppCategoriesModule,
 		DynamicTabsModule,
 		GauzyFiltersModule,
 		NoDataMessageModule,
@@ -81,6 +84,67 @@ export class ActivityModule {
 		// employees do not — screenshots are not part of an employee's own
 		// self-service view. Without the guard the page is still reachable by
 		// typing the URL, and would render that employee's own screenshots.
+		// The three views that also appear under My work, registered here so the
+		// per-employee page can show them. Same components, same date-picker
+		// config — only the way in differs.
+		this._pageRouteRegistryService.registerPageRoute({
+			location: 'time-activity-sections',
+			path: 'productivity',
+			canActivate: [PermissionsGuard],
+			data: {
+				permissions: {
+					only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+					redirectTo: '/pages/employees'
+				},
+				datePicker: {
+					unitOfTime: 'day',
+					isLockDatePicker: true,
+					isSaveDatePicker: false,
+					isSingleDatePicker: true,
+					isDisableFutureDate: true
+				}
+			},
+			resolve: { dates: DateRangePickerResolver },
+			loadChildren: () => import('../productivity/productivity.module').then((m) => m.ProductivityModule)
+		});
+
+		this._pageRouteRegistryService.registerPageRoute({
+			location: 'time-activity-sections',
+			path: 'app-categories',
+			component: AppCategoriesComponent,
+			canActivate: [PermissionsGuard],
+			data: {
+				permissions: {
+					only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+					redirectTo: '/pages/employees'
+				},
+				datePicker: {
+					unitOfTime: 'day',
+					isLockDatePicker: true,
+					isSaveDatePicker: false,
+					isSingleDatePicker: true,
+					isDisableFutureDate: true
+				},
+				title: 'App categories',
+				type: 'app-categories'
+			},
+			resolve: { dates: DateRangePickerResolver, bookmarkParams: BookmarkQueryParamsResolver }
+		});
+
+		this._pageRouteRegistryService.registerPageRoute({
+			location: 'time-activity-sections',
+			path: 'apps-urls',
+			canActivate: [PermissionsGuard],
+			data: {
+				permissions: {
+					only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+					redirectTo: '/pages/employees'
+				}
+			},
+			loadChildren: () =>
+				import('../../reports/apps-urls-report/apps-urls-report.module').then((m) => m.AppsUrlsReportModule)
+		});
+
 		this._pageRouteRegistryService.registerPageRoute({
 			location: 'time-activity-sections',
 			path: 'screenshots',
