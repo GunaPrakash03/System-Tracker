@@ -9,11 +9,19 @@ import { DateRangePickerResolver, DynamicTabsModule, SharedModule } from '@gauzy
 import { MyWorkLayoutComponent } from './my-work-layout.component';
 import { AppUsageComponent } from '../activity/app-usage/app-usage.component';
 import { AppUsageModule } from '../activity/app-usage/app-usage.module';
+import { AppCategoriesComponent } from '../app-categories/app-categories.component';
+import { AppCategoriesModule } from '../app-categories/app-categories.module';
 
 /**
- * The three tabs keep the date-picker configuration each page already had when
- * it stood alone — productivity and app usage are single-day reads, apps & URLs
- * is a week. Changing that here would silently alter what the pages show.
+ * Each tab keeps the date-picker configuration its page already had when it
+ * stood alone — productivity, app categories and app usage are single-day
+ * reads, apps & URLs is a week. Changing that here would silently alter what
+ * the pages show.
+ *
+ * Productivity is open to everyone: an employee may see how their own day was
+ * spent. The other three carry ORG_EMPLOYEES_VIEW, so only admins, super admins
+ * and managers reach them — the classification, the raw app list and the URL
+ * report are all management views of someone else's work.
  */
 const routes: Routes = [
 	{
@@ -57,6 +65,40 @@ const routes: Routes = [
 					import('../../reports/apps-urls-report/apps-urls-report.module').then((m) => m.AppsUrlsReportModule)
 			},
 			{
+				// The app CLASSIFICATION — which applications counted as
+				// productive, neutral or unproductive — rather than the totals.
+				// Deliberately its own tab and not part of the Productivity page:
+				// that page is read by the employee themselves and answers "how
+				// much of my day was productive", while this exposes the rule
+				// being applied to them, which is what a manager needs when a
+				// figure is challenged.
+				//
+				// Same guard as the two tabs below. Hiding a tab is presentation;
+				// this is the part that refuses a typed URL.
+				path: 'app-categories',
+				component: AppCategoriesComponent,
+				canActivate: [PermissionsGuard],
+				data: {
+					permissions: {
+						only: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
+						redirectTo: '/pages/employees/my-work/productivity'
+					},
+					datePicker: {
+						unitOfTime: 'day',
+						isLockDatePicker: true,
+						isSaveDatePicker: false,
+						isSingleDatePicker: true,
+						isDisableFutureDate: true
+					},
+					title: 'App categories',
+					type: 'app-categories'
+				},
+				resolve: {
+					dates: DateRangePickerResolver,
+					bookmarkParams: BookmarkQueryParamsResolver
+				}
+			},
+			{
 				path: 'app-usage',
 				component: AppUsageComponent,
 				canActivate: [PermissionsGuard],
@@ -91,6 +133,7 @@ const routes: Routes = [
 		NbCardModule,
 		TranslateModule.forChild(),
 		AppUsageModule,
+		AppCategoriesModule,
 		DynamicTabsModule,
 		SharedModule
 	],

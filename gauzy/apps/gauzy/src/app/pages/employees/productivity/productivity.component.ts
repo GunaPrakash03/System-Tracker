@@ -2,7 +2,6 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
 import { DateRangePickerBuilderService, Store } from '@gauzy/ui-core/core';
-import { RolesEnum } from '@gauzy/contracts';
 import { combineLatest, firstValueFrom } from 'rxjs';
 import { debounceTime, tap } from 'rxjs/operators';
 
@@ -103,19 +102,6 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 	public bars: HourBar[] = [];
 	public summary: DaySummary | null = null;
 	public blocks: Block[] = [];
-	/**
-	 * Whether to draw the app categorisation and the unmonitored figure.
-	 *
-	 * False for an EMPLOYEE looking at their own day: they see how long they
-	 * worked, not this deployment's verdict on which of their applications was
-	 * productive. Defaults to false so a role that fails to resolve shows less
-	 * rather than more.
-	 *
-	 * This is presentation, NOT access control — /api/employee-settings still
-	 * serves the same payload to the same token. Restricting the data itself
-	 * needs a server-side filter; see docs/manager-role-and-visibility.md.
-	 */
-	public canSeeCategories = false;
 	public ticks: Tick[] = [];
 	/** Explains the ribbon's resolution, or why it is empty. */
 	public timelineNote = '';
@@ -160,21 +146,6 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 					// the first alone left the page blank and silent for anyone who
 					// had not touched the header selector.
 					const user: any = this.store.user;
-					// Who may see the app categorisation and the unmonitored figure.
-					// An employee sees how long they worked; they do not see this
-					// deployment's judgement of which of their applications counted
-					// as productive, nor how much of their day went unobserved.
-					// That is management information and it reads very differently
-					// to the person being measured.
-					//
-					// A manager's *scope* — which employees they may look at — is
-					// enforced server-side; this only decides whether the breakdown
-					// is drawn at all for whoever is looking.
-					this.canSeeCategories = [
-						RolesEnum.SUPER_ADMIN,
-						RolesEnum.ADMIN,
-						RolesEnum.MANAGER
-					].includes(user?.role?.name);
 					this.employeeId = employee?.id || user?.employeeId || user?.employee?.id || '';
 					const start = range?.startDate ? new Date(range.startDate) : new Date();
 					this.date = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(

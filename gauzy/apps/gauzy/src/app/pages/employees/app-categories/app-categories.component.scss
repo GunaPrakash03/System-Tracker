@@ -1,0 +1,101 @@
+.app-categories {
+	// Same three colours the Productivity page uses for the identical concepts.
+	// A category that is green on one page and blue on the next is a reading
+	// error waiting to happen.
+	--productive: #12805c;
+	--neutral: #2a78d6;
+	--unproductive: #c0392b;
+	--ink-muted: rgba(0, 0, 0, 0.55);
+
+	.group {
+		margin-top: 1.5rem;
+
+		&:first-of-type {
+			margin-top: 0.5rem;
+		}
+	}
+
+	.group-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	// Colour is never the only cue: the category is named beside the swatch and
+	// the numbers are repeated in the table.
+	.sw {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border-radius: 2px;
+		flex: 0 0 auto;
+
+		&.productive {
+			background: var(--productive);
+		}
+		&.neutral {
+			background: var(--neutral);
+		}
+		&.unproductive {
+			background: var(--unproductive);
+		}
+	}
+
+	.group-total {
+		font-weight: 600;
+	}
+
+	.group-pct {
+		color: var(--ink-muted);
+		font-weight: 400;
+	}
+
+	.empty {
+		margin-left: 1.25rem;
+	}
+
+	.table {
+		width: 100%;
+
+		th.num,
+		td.num {
+			text-align: right;
+			white-space: nowrap;
+		}
+		// Tabular figures so the columns scan vertically instead of jittering.
+		td.num {
+			font-variant-numeric: tabular-nums;
+		}
+		td.strong {
+			font-weight: 600;
+		}
+	}
+
+	// The share bar sits behind the number rather than in its own column, so the
+	// magnitude reads at a glance without widening the table.
+	.bar {
+		display: inline-block;
+		height: 8px;
+		border-radius: 2px;
+		vertical-align: middle;
+		margin-right: 0.5rem;
+		min-width: 2px;
+		opacity: 0.85;
+
+		&.productive {
+			background: var(--productive);
+		}
+		&.neutral {
+			background: var(--neutral);
+		}
+		&.unproductive {
+			background: var(--unproductive);
+		}
+	}
+
+	.pct {
+		display: inline-block;
+		min-width: 2.5rem;
+	}
+}
