@@ -853,7 +853,7 @@
 		"TOTAL_INCOME_OR_MONTHLY_INCOME": "Total Income/Monthly Income",
 		"PROFITS": "Profits",
 		"BONUSES_PAID": "Bonuses Paid",
-		"TOTAL_HOURS_WORKED_OVER_GAUZY": "Total Hours worked over Gauzy",
+		"TOTAL_HOURS_WORKED_OVER_GAUZY": "Total Hours worked",
 		"MINIMUM_PROJECT_SIZE": "Minimum Project Size",
 		"PROJECTS_COUNT": "Projects Count",
 		"CLIENTS_COUNT": "Clients Count",
@@ -1214,8 +1214,8 @@
 		"CORPORATE": "Corporate",
 		"MATERIAL_LIGHT_THEME": "Material Light",
 		"MATERIAL_DARK_THEME": "Material Dark",
-		"GAUZY_LIGHT": "Gauzy Light",
-		"GAUZY_DARK": "Gauzy Dark",
+		"GAUZY_LIGHT": "Workspace Light",
+		"GAUZY_DARK": "Workspace Dark",
 		"LANGUAGE": "Language",
 		"ENGLISH": "English",
 		"FRENCH": "French",
@@ -1244,7 +1244,7 @@
 	"CHANGELOG_MENU": {
 		"HEADER": "What's new?",
 		"LEARN_MORE_URL": "Learn more",
-		"GAUZY_FEATURES": "Gauzy features"
+		"GAUZY_FEATURES": "Workspace features"
 	},
 	"REPORT_PAGE": {
 		"MEMBERS_WORKED": "Members Worked",

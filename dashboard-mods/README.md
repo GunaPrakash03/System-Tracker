@@ -35,6 +35,51 @@ image must be built from this branch. See `docs/railway-deployment.md`.
 Rows 8–10 are **API-side**. They change `packages/core`, so the API image is a
 custom build too — this is not a web-only patch set.
 
+## Rebranding — what moved, and what deliberately did not
+
+The product is **Young Globes Workspace**; the company is **Young Globes**.
+Trademarks are not covered by the AGPL grant, so dropping the Ever/Gauzy marks
+is permitted and expected once this is presented as our own tool. The licence is
+a separate matter and does not change (`gauzy/LICENSE` stays).
+
+Most of it is **configuration, not code**. Twenty-two branding values — company
+name, site name, every social/download/privacy/TOS link, the logo paths — are
+substituted into the already-built JS bundles at container start by
+`replacements.sed`. They are pinned in `deploy/docker-compose.yml`; changing one
+needs a restart, not a rebuild. Left unset they silently fall back to the
+Ever/Gauzy defaults baked into the image, which is why they are all listed
+explicitly rather than omitted.
+
+Four code changes were needed, because these are compiled in:
+
+| File | Change |
+|---|---|
+| `apps/gauzy/src/index.html` | `<title>`, author, description |
+| `apps/gauzy/src/manifest.json` | `name`, `short_name` |
+| `packages/ui-core/i18n/.../en.json` | theme names, "Workspace features", "Total Hours worked" |
+| `deploy/docker-compose.yml` | `APP_NAME` / `APP_SIGNATURE` / `APP_LINK` on the API — without them, invitation and password-reset emails go out signed "Gauzy Team" linking to app.gauzy.co |
+
+**The other 54 "Gauzy" strings in `en.json` were left alone on purpose.** They
+divide into two kinds, neither of which should be renamed:
+
+- **JSON keys** (`GAUZY_API_KEY`, `GAUZY_LIGHT`, `invite-gauzy-teams`). Code
+  looks these up by name; renaming a key breaks the lookup and yields a blank
+  label. Only the values were touched.
+- **Names of Ever's actual external services** — Gauzy AI, Ever Gauzy Cloud, the
+  Gauzy Desktop/Timer/Server apps, the plugin registry's `Gauzy` source type.
+  These are real third-party products we integrate with or migrate to. Calling
+  Ever's cloud "Young Globes Workspace Cloud" would be inaccurate, not rebranded.
+
+A blanket find-and-replace would also collide with upstream on every future
+`git subtree pull`. Most of these strings sit on pages the feature trim in
+`config/minimal-tracking-features.sql` hides anyway.
+
+**Still outstanding: the artwork.** `PLATFORM_LOGO` and `NO_INTERNET_LOGO` still
+point at `assets/images/logos/logo_Gauzy.svg`, and `favicon.ico` is unchanged.
+Drop replacement files into `gauzy/apps/gauzy/src/assets/images/logos/` and
+repoint the two variables in `deploy/docker-compose.yml` — no rebuild needed for
+the variables, though a new asset file does need one.
+
 Change #4 renders a page whose **data lives in `admin/settings_app.py`**, not in Gauzy —
 Gauzy has no per-employee screenshot interval, no media-as-idle rule and no
 per-department app productivity. The Angular page is a thin client over that

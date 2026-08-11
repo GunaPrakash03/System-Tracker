@@ -66,6 +66,13 @@ services:
       EXPRESS_SESSION_SECRET: ${EXPRESS_SESSION_SECRET:?set EXPRESS_SESSION_SECRET in .env}
       FILE_PROVIDER: LOCAL
       SENTRY_DSN: '' # deliberately empty — see docs/HANDOVER.md §7
+      # Branding for anything the API generates — invitation and password-reset
+      # emails, magic links. Without these they go out signed "Gauzy Team" and
+      # link to app.gauzy.co (packages/config/.../environment.prod.ts:334).
+      APP_NAME: Young Globes Workspace
+      APP_SIGNATURE: Young Globes
+      APP_LINK: ${PUBLIC_URL:-http://localhost:8080}
+      APP_LOGO: ${PUBLIC_URL:-http://localhost:8080}/assets/images/logos/logo_Gauzy.png
     volumes:
       # Screenshots and uploads under FILE_PROVIDER=LOCAL. Without this they are
       # lost on every container replacement.
@@ -97,6 +104,37 @@ services:
       CLIENT_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
       NODE_ENV: production
       SENTRY_DSN: ''
+      # --- Branding.
+      # These are substituted into the already-built JS bundles at container
+      # start (replacements.sed), so changing them needs a restart, not a
+      # rebuild. Left unset they fall back to the Ever/Gauzy defaults baked into
+      # the image — which is why they are pinned here rather than omitted.
+      COMPANY_NAME: Young Globes
+      COMPANY_SITE_NAME: Young Globes Workspace
+      COMPANY_LINK: https://youngglobes.com
+      COMPANY_SITE_LINK: https://youngglobes.com
+      PLATFORM_WEBSITE_URL: https://youngglobes.com
+      PLATFORM_PRIVACY_URL: https://youngglobes.com
+      PLATFORM_TOS_URL: https://youngglobes.com
+      PROJECT_REPO: ''
+      # Social and download links are removed rather than redirected — this is
+      # an internal tool with no public downloads or social presence. Empty
+      # values render as absent, not as broken links to gauzy.co.
+      COMPANY_GITHUB_LINK: ''
+      COMPANY_GITLAB_LINK: ''
+      COMPANY_FACEBOOK_LINK: ''
+      COMPANY_TWITTER_LINK: ''
+      COMPANY_IN_LINK: ''
+      PLATFORM_WEBSITE_DOWNLOAD_URL: ''
+      DESKTOP_APP_DOWNLOAD_LINK_APPLE: ''
+      DESKTOP_APP_DOWNLOAD_LINK_WINDOWS: ''
+      DESKTOP_APP_DOWNLOAD_LINK_LINUX: ''
+      MOBILE_APP_DOWNLOAD_LINK: ''
+      EXTENSION_DOWNLOAD_LINK: ''
+      # Logos still point at the Gauzy artwork — replace the files under
+      # gauzy/apps/gauzy/src/assets/images/logos/ and repoint these.
+      PLATFORM_LOGO: ${PLATFORM_LOGO:-assets/images/logos/logo_Gauzy.svg}
+      NO_INTERNET_LOGO: ${NO_INTERNET_LOGO:-assets/images/logos/logo_Gauzy.svg}
     ports:
       # The one endpoint. Left side is what the world sees; 4200 is hardcoded in
       # nginx.compose.conf and is not worth changing.
