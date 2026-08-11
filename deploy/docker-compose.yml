@@ -1,0 +1,107 @@
+# System-Tracker — dashboard and API behind ONE endpoint.
+#
+# Only `webapp` publishes a port. nginx serves the dashboard at / and proxies
+# /api/ to the api service over the internal network, so there is one origin,
+# no CORS, and neither the API nor the database is reachable from outside.
+#
+#   docker compose --env-file .env up -d --build
+#
+# Contrast with gauzy/docker-compose.demo.yml, which publishes all three
+# (5432, 3000, 4200). That is the arrangement this file replaces.
+
+name: system-tracker
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: st-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:?set DB_PASS in .env}
+      POSTGRES_DB: ${DB_NAME:-gauzy}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-gauzy}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No `ports:` — the database is internal. Use `docker exec st-db psql` to reach it.
+
+  api:
+    image: ${API_IMAGE:-system-tracker/api:local}
+    build:
+      context: ../gauzy
+      dockerfile: .deploy/api/Dockerfile
+      args:
+        NODE_ENV: production
+    container_name: st-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # --- the three that fail silently if wrong (docs/railway-deployment.md §5)
+      DB_TYPE: postgres # the image bakes better-sqlite3; left alone it serves a demo DB
+      TZ: UTC # timestamps are `without time zone` holding UTC, parsed in process TZ
+      API_HOST: 0.0.0.0 # on Railway this MUST be :: — that private network is IPv6-only
+      # ---
+      API_PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-gauzy}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASS: ${DB_PASS}
+      DB_SYNCHRONIZE: 'false'
+      DB_SSL_MODE: 'false'
+      NODE_ENV: production
+      IS_DOCKER: 'true'
+      # One origin: everything the browser and the trackers talk to is PUBLIC_URL.
+      API_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      CLIENT_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      ALLOWED_ORIGINS: ${PUBLIC_URL:-http://localhost:8080}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_REFRESH_TOKEN_SECRET: ${JWT_REFRESH_TOKEN_SECRET:?set JWT_REFRESH_TOKEN_SECRET in .env}
+      EXPRESS_SESSION_SECRET: ${EXPRESS_SESSION_SECRET:?set EXPRESS_SESSION_SECRET in .env}
+      FILE_PROVIDER: LOCAL
+      SENTRY_DSN: '' # deliberately empty — see docs/HANDOVER.md §7
+    volumes:
+      # Screenshots and uploads under FILE_PROVIDER=LOCAL. Without this they are
+      # lost on every container replacement.
+      - api-uploads:/srv/gauzy/apps/api/public
+    # No `ports:` — reachable only as `api:3000` on this network.
+
+  webapp:
+    image: ${WEBAPP_IMAGE:-system-tracker/webapp:local}
+    build:
+      context: ../gauzy
+      dockerfile: .deploy/webapp/Dockerfile
+      args:
+        NODE_ENV: production
+        NODE_OPTIONS: --max-old-space-size=12288
+    container_name: st-webapp
+    restart: unless-stopped
+    depends_on:
+      - api
+    # The image's default CMD runs entrypoint.prod.sh, which uses nginx.prod.conf —
+    # static files only, no /api/ proxy. The compose entrypoint is the one that
+    # writes the proxying config, and it also substitutes API_BASE_URL into the
+    # already-built JS bundles.
+    entrypoint: ./entrypoint.compose.sh
+    command: ['nginx', '-g', 'daemon off;']
+    environment:
+      API_HOST: api # nginx upstream — the service name on this network
+      API_PORT: 3000
+      API_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      CLIENT_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      NODE_ENV: production
+      SENTRY_DSN: ''
+    ports:
+      # The one endpoint. Left side is what the world sees; 4200 is hardcoded in
+      # nginx.compose.conf and is not worth changing.
+      - '${PUBLIC_PORT:-8080}:4200'
+
+volumes:
+  db-data:
+  api-uploads:

@@ -1,6 +1,13 @@
-config.json
+# Anchored to this repo's own files. Unanchored patterns would also apply
+# inside gauzy/, where 12k vendored files could be hidden by accident.
+/tracker/config.json
+/dashboard-mods/*.bak
+/deploy/.env
+
 __pycache__/
 *.pyc
+
+# Build output — this one is deliberately unanchored, to cover gauzy/dist
+# and gauzy/apps/*/dist as well as /dist.
 dist/
-dashboard-mods/*.bak
 

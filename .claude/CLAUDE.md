@@ -1,10 +1,13 @@
 # System-Tracker
 
-Per-employee activity tracking for Ubuntu developer workstations. **Ever Gauzy**
-(`/home/sys0041/ever-gauzy`, AGPL-3.0, read-only reference) is the org/reporting
-layer; this repo holds a custom tracker that fills the gaps neither Gauzy's
-desktop agent nor ActivityWatch covers on Linux — chiefly **headless/background
-processes**, which neither tool sees.
+Per-employee activity tracking for Ubuntu developer workstations. Two halves:
+a custom tracker filling the gaps neither Gauzy's desktop agent nor
+ActivityWatch covers on Linux — chiefly **headless/background processes**,
+which neither tool sees — and **Ever Gauzy** (AGPL-3.0) as the org/reporting
+layer, now **vendored under `gauzy/`** and modified in place.
+
+`/home/sys0041/ever-gauzy` is the historical checkout the vendored tree was
+copied from. It is no longer the source of truth; edit `gauzy/` instead.
 
 ## Layout
 
@@ -13,11 +16,21 @@ tracker/proc_tracker.py                the tracker — the whole product, ~670 l
 tracker/report.py                      CLI running-time report (imports proc_tracker)
 tracker/config.example.json            copy to tracker/config.json (gitignored)
 tracker/README.md                      usage, config table, session-backend matrix
+gauzy/                                 vendored Ever Gauzy (12k files), ours to edit
+deploy/docker-compose.yml              dashboard + API behind ONE endpoint
+deploy/.env.example                    copy to deploy/.env (gitignored)
+dashboard-mods/README.md               what we changed in gauzy/, and the build runbook
 config/minimal-tracking-features.sql   Gauzy sidebar trim via feature toggles
+docs/railway-deployment.md             Railway runbook for the single-endpoint setup
+docs/single-endpoint-deployment.md     why one URL, and the shape of it
 docs/feasibility.md                    original assessment (Xorg question resolved at top)
 docs/HANDOVER.md                       current state, screenshot findings, open items
 README.md                              scope + platform capability matrix
 ```
+
+The tracker is stdlib-only Python and stays that way; `gauzy/` is a Node/Angular
+monorepo with entirely different rules. The stdlib-only constraint below applies
+to `tracker/`, not to `gauzy/`.
 
 ## Commands
 
@@ -90,8 +103,15 @@ that register. British spelling in the existing prose.
 
 ## Environment facts
 
-- Gauzy API `http://localhost:3000`; the Gauzy DB runs in a container named `db`
-  (`docker exec -i db psql -U postgres -d gauzy`).
+- **One endpoint.** `deploy/docker-compose.yml` publishes only the webapp;
+  nginx serves the dashboard at `/` and proxies `/api/` to the API internally,
+  so there is a single origin and no CORS. Neither the API nor the database is
+  reachable from outside. Default `http://localhost:8080`.
+- The older two-port arrangement (`:4200` dashboard, `:3000` API, `:5432` DB,
+  all published — `gauzy/docker-compose.demo.yml`) is what this replaces. The
+  legacy containers are named `db` / `api` / `webapp`; the new ones are
+  `st-db` / `st-api` / `st-webapp`.
+- `docker exec -i st-db psql -U postgres -d gauzy` for the database.
 - After applying `config/minimal-tracking-features.sql`, users must **fully log
   out and back in** — a refresh is not enough, the old feature list is cached in
   `localStorage` (`_gauzyStore`).
@@ -100,7 +120,24 @@ that register. British spelling in the existing prose.
 
 ## Licence
 
-Gauzy is AGPL-3.0. Configuration (feature toggles) creates no obligation.
-Deploying a *modified* Gauzy to users outside the company triggers AGPL §13 and
-requires rebranding off the "Ever"/"Gauzy" marks. Code in this repo is separate
-and carries its own licence — keep it that way; do not vendor Gauzy source here.
+**Gauzy is now vendored under `gauzy/`.** This supersedes the earlier rule
+against vendoring — it was a deliberate decision, not an oversight.
+
+What vendoring does and does not grant:
+
+- It grants the right to **copy and modify**. AGPL-3.0 says so explicitly.
+- It does **not** transfer ownership or allow relicensing. `gauzy/` stays
+  AGPL-3.0, copyright Ever Co. LTD. `gauzy/LICENSE` and the copyright headers
+  are not ours to remove, however much of the code we rewrite.
+- Rebranding off the **"Ever"/"Gauzy" marks is permitted and expected** —
+  trademarks are not covered by the AGPL grant, so if this is presented as our
+  product the marks must go. That is separate from the licence, which stays.
+- Deploying a *modified* Gauzy to users over a network triggers **AGPL §13**:
+  the modified source must be offered to those users. Internal-only use is the
+  simpler position.
+
+`tracker/` is a **separate program** — it talks to Gauzy over HTTP and shares no
+process, no linkage and no build. Living in the same repo is aggregation, not
+combination, and does not pull the tracker under the AGPL. Keep it that way:
+do not import Gauzy code into `tracker/`, and do not make the tracker part of
+the Gauzy build.
