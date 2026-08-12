@@ -54,14 +54,14 @@ export class TrackerSettingsComponent implements OnInit {
 	 */
 	public readonly intervals = [
 		{ value: '', label: 'Default' },
-		{ value: '60', label: '1 minute' },
-		{ value: '180', label: '3 minutes' },
-		{ value: '300', label: '5 minutes' },
-		{ value: '600', label: '10 minutes' },
-		{ value: '900', label: '15 minutes' },
-		{ value: '1800', label: '30 minutes' },
-		{ value: '2700', label: '45 minutes' },
-		{ value: '3600', label: '1 hour' }
+		{ value: '60', label: '1 min' },
+		{ value: '180', label: '3 min' },
+		{ value: '300', label: '5 min' },
+		{ value: '600', label: '10 min' },
+		{ value: '900', label: '15 min' },
+		{ value: '1800', label: '30 min' },
+		{ value: '2700', label: '45 min' },
+		{ value: '3600', label: '1 hr' }
 	];
 	/**
 	 * The three plain categories apply wherever the name matches — a process, or
@@ -85,11 +85,11 @@ export class TrackerSettingsComponent implements OnInit {
 	 */
 	public readonly idleAfters = [
 		{ value: '', label: 'Default (3 min)' },
-		{ value: '60', label: '1 minute' },
-		{ value: '120', label: '2 minutes' },
-		{ value: '180', label: '3 minutes' },
-		{ value: '300', label: '5 minutes' },
-		{ value: '600', label: '10 minutes' }
+		{ value: '60', label: '1 min' },
+		{ value: '120', label: '2 min' },
+		{ value: '180', label: '3 min' },
+		{ value: '300', label: '5 min' },
+		{ value: '600', label: '10 min' }
 	];
 
 	public appDept = '';

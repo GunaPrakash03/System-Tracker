@@ -132,84 +132,19 @@ export class EditEmployeeProfileComponent extends TranslationBaseComponent imple
 				responsive: true,
 				route: this.getRoute('account')
 			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'networks',
-				tabIcon: 'at-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.NETWORKS'),
-				order: 1,
-				responsive: true,
-				route: this.getRoute('networks')
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'employment',
-				tabIcon: 'browser-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.EMPLOYMENT'),
-				order: 2,
-				responsive: true,
-				route: this.getRoute('employment')
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'hiring',
-				tabIcon: 'browser-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.HIRING'),
-				order: 3,
-				responsive: true,
-				route: this.getRoute('hiring')
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'location',
-				tabIcon: 'pin-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.LOCATION'),
-				order: 4,
-				responsive: true,
-				route: this.getRoute('location')
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'rates',
-				tabIcon: 'pricetags-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.RATES'),
-				order: 5,
-				responsive: true,
-				route: this.getRoute('rates')
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'projects',
-				tabIcon: 'book-open-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.PROJECTS'),
-				order: 6,
-				responsive: true,
-				route: this.getRoute('projects'),
-				permissions: [PermissionsEnum.ALL_ORG_VIEW, PermissionsEnum.ORG_PROJECT_VIEW]
-			},
-			{
-				tabsetId: this.tabsetId,
-				tabId: 'contacts',
-				tabIcon: 'book-outline',
-				tabsetType: 'route',
-				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.CONTACTS'),
-				order: 7,
-				responsive: true,
-				route: this.getRoute('contacts')
-			},
+			// Networks, Employment, Hiring, Location, Rates, Projects and Contacts
+			// are deliberately not registered. This deployment exists to answer
+			// tracking questions, and none of those tabs carry tracking data — they
+			// are HR fields nobody here maintains, so an empty tab reads as broken.
+			// Their routes and components are left in place, so a direct URL still
+			// resolves and nothing else that links to them breaks; only the tabs go.
 			{
 				tabsetId: this.tabsetId,
 				tabId: 'settings',
 				tabIcon: 'settings-outline',
 				tabsetType: 'route',
 				tabTitle: (_i18n) => _i18n.getTranslation('EMPLOYEES_PAGE.EDIT_EMPLOYEE.SETTINGS'),
-				order: 8,
+				order: 1,
 				responsive: true,
 				route: this.getRoute('settings')
 			}

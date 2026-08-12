@@ -2,7 +2,7 @@ import { AfterViewInit, ChangeDetectorRef, Component, OnDestroy, OnInit } from '
 import { ActivatedRoute, Router, UrlSerializer } from '@angular/router';
 import { Location } from '@angular/common';
 import { combineLatest, debounceTime } from 'rxjs';
-import { filter, tap } from 'rxjs/operators';
+import { filter, skip, tap } from 'rxjs/operators';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
 import { TranslateService } from '@ngx-translate/core';
 import {
@@ -47,6 +47,20 @@ export class EditEmployeeComponent extends TranslationBaseComponent implements O
 	ngOnInit() {
 		this.store.selectedEmployee$
 			.pipe(
+				// Drop the value the store is already holding when this page opens.
+				//
+				// This subscription exists to follow the header's employee picker:
+				// choose someone else up there and the edit page should move to them.
+				// But the store is app-wide and replays its current value on
+				// subscribe, and that value is whoever was last selected anywhere —
+				// on the Productivity page, for instance. Without this skip, opening
+				// Edit for B while the store still holds A immediately redirected to
+				// A, and the write-back in ngAfterViewInit then pushed B back, so the
+				// page visibly bounced between two employees.
+				//
+				// A replayed value and a genuine pick are indistinguishable by id, so
+				// position in the stream is the only thing that separates them.
+				skip(1),
 				debounceTime(200),
 				distinctUntilChange(),
 				filter((employee: ISelectedEmployee) => !!employee && !!employee.id),

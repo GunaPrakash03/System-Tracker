@@ -68,33 +68,11 @@ export class DashboardComponent extends TranslationBaseComponent implements OnIn
 	 * @returns {void}
 	 */
 	registerPageTabs(): void {
-		// Register the teams tab
-		this._pageTabRegistryService.registerPageTab({
-			tabsetId: this.tabsetId, // The identifier for the tabset
-			tabId: 'teams', // The identifier for the tab
-			tabsetType: 'route', // The type of tabset to use
-			route: '/pages/dashboard/teams', // The route for the tab
-			tabTitle: (_i18n) => _i18n.getTranslation('ORGANIZATIONS_PAGE.TEAMS'), // The title for the tab
-			tabIcon: 'people-outline', // The icon for the tab
-			responsive: true, // Whether the tab is responsive
-			activeLinkOptions: { exact: false }, // The options for the active link
-			order: 1, // The order of the tab,
-			permissions: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TEAM_DASHBOARD]
-		});
-
-		// Register the project management tab
-		this._pageTabRegistryService.registerPageTab({
-			tabsetId: this.tabsetId, // The identifier for the tabset
-			tabId: 'project-management', // The identifier for the tab
-			tabsetType: 'route', // The type of tabset to use
-			route: '/pages/dashboard/project-management', // The route for the tab
-			tabTitle: (_i18n) => _i18n.getTranslation('DASHBOARD_PAGE.PROJECT_MANAGEMENT'), // The title for the tab
-			tabIcon: 'browser-outline', // The icon for the tab
-			responsive: true, // Whether the tab is responsive
-			activeLinkOptions: { exact: false }, // The options for the active link
-			order: 2, // The order of the tab
-			permissions: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.PROJECT_MANAGEMENT_DASHBOARD]
-		});
+		// Teams and Project Management are deliberately not registered. Neither
+		// shows tracking data, which is the only thing this deployment reports on.
+		// Their routes remain, so a bookmarked URL still resolves; only the tabs
+		// are gone. Accounting is dropped in registerAccountingTabs() below, which
+		// owns the tabs that depend on the header's employee selection.
 	}
 
 	/**
@@ -106,22 +84,10 @@ export class DashboardComponent extends TranslationBaseComponent implements OnIn
 		this._pageTabRegistryService.removePageTab(this.tabsetId, 'accounting');
 		this._pageTabRegistryService.removePageTab(this.tabsetId, 'hr');
 
-		// Check if the user has permission to view accounting
-		if (!this.selectedEmployee || !this.selectedEmployee.id) {
-			// Register the accounting tab
-			this._pageTabRegistryService.registerPageTab({
-				tabsetId: this.tabsetId, // The identifier for the tabset
-				tabId: 'accounting', // The identifier for the tab
-				tabsetType: 'route', // The type of tabset to use
-				route: '/pages/dashboard/accounting', // The route for the tab
-				tabTitle: (_i18n) => _i18n.getTranslation('DASHBOARD_PAGE.ACCOUNTING'), // The title for the tab
-				tabIcon: 'credit-card-outline', // The icon for the tab
-				responsive: true, // Whether the tab is responsive
-				activeLinkOptions: { exact: false }, // The options for the active link
-				order: 4, // The order of the tab
-				permissions: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.ACCOUNTING_DASHBOARD]
-			});
-		}
+		// The Accounting tab, which upstream registers when no employee is selected
+		// in the header, is deliberately gone. Note the consequence: Human
+		// Resources below is registered only when an employee IS selected, so with
+		// no selection this tabset is now empty.
 
 		// Check if the user has permission to view human resources
 		if (this.selectedEmployee && this.selectedEmployee.id) {
