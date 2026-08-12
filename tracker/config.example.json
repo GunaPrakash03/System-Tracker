@@ -33,6 +33,6 @@
   "timer_source": "DESKTOP",
   "enforce_timer": true,
   "stop_timer_on_exit": false,
-  "use_local_time": true,
+  "use_local_time": false,
   "verbose": true
 }
