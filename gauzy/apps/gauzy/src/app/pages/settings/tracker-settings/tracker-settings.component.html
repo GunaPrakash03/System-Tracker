@@ -25,7 +25,6 @@
 						<th>Idle after</th>
 						<th>Media counts as idle</th>
 						<th>Blur screenshots</th>
-						<th>Department</th>
 						<th></th>
 					</tr>
 				</thead>
@@ -45,17 +44,11 @@
 						<td><nb-toggle [(checked)]="row.mediaIdle"></nb-toggle></td>
 						<td><nb-toggle [(checked)]="row.blur"></nb-toggle></td>
 						<td>
-							<nb-select size="small" [(selected)]="row.departmentId">
-								<nb-option value="">—</nb-option>
-								<nb-option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</nb-option>
-							</nb-select>
-						</td>
-						<td>
 							<button nbButton size="small" status="primary" (click)="saveEmployee(row)">Save</button>
 						</td>
 					</tr>
 					<tr *ngIf="!employees.length && !loading">
-						<td colspan="7" class="text-hint">No employees found.</td>
+						<td colspan="6" class="text-hint">No employees found.</td>
 					</tr>
 				</tbody>
 			</table>

@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { NbDialogService } from '@nebular/theme';
@@ -64,6 +64,12 @@ import {
 	standalone: false
 })
 export class EmployeesComponent extends PaginationFilterBaseComponent implements OnInit, OnDestroy {
+	/** The only cells that open the employee's activity page when clicked. */
+	private static readonly NAVIGABLE_COLUMNS = ['employeeCode', 'fullName'];
+
+	/** Set by the capture-phase listener, read by onRowSelect(). */
+	private _navigateOnRowSelect = false;
+
 	public dataTableId: PageDataTablePageId = this._route.snapshot.data.dataTableId; // The identifier for the data table
 	public settingsSmartTable: Settings;
 	public smartTableSource: ServerDataSource;
@@ -107,7 +113,8 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 		private readonly _httpClient: HttpClient,
 		private readonly _dateFormatPipe: DateFormatPipe,
 		private readonly _pageDataTableRegistryService: PageDataTableRegistryService,
-		private readonly genericFavoriteService: GenericFavoriteService
+		private readonly genericFavoriteService: GenericFavoriteService,
+		private readonly _elementRef: ElementRef<HTMLElement>
 	) {
 		super(translateService);
 		this.setView();
@@ -158,6 +165,50 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 
 	ngAfterViewInit(): void {
 		this._applyTranslationOnSmartTable();
+		this._watchNavigableCellClicks();
+	}
+
+	/**
+	 * Decide, before the row's own handler runs, whether this click should navigate.
+	 *
+	 * angular2-smart-table emits `userRowSelect` from a click on the `<tr>`, so
+	 * every cell selects the row — including the 3-dot actions menu, which used to
+	 * navigate away the moment it was opened. The emitted event carries no DOM
+	 * target and the data `<td>`s are rendered without a column class, so the
+	 * originating column has to be recovered from the cell's position in its row.
+	 *
+	 * Registered in the CAPTURE phase deliberately. A bubbling listener on this
+	 * host would run *after* the `<tr>` had already emitted, far too late to
+	 * suppress the navigation.
+	 */
+	private _watchNavigableCellClicks(): void {
+		this._elementRef.nativeElement.addEventListener(
+			'click',
+			(event: Event) => {
+				const cell = (event.target as HTMLElement | null)?.closest('td');
+				const row = cell?.parentElement;
+				if (!cell || !row) {
+					this._navigateOnRowSelect = false;
+					return;
+				}
+				const index = Array.prototype.indexOf.call(row.children, cell);
+				this._navigateOnRowSelect = this._navigableColumnIndexes().includes(index);
+			},
+			true
+		);
+	}
+
+	/**
+	 * Positions of the id and name columns among the *visible* ones.
+	 *
+	 * Read from the live settings rather than hard-coded, so that reordering or
+	 * hiding a column moves the clickable cells with it instead of silently
+	 * making the wrong column navigate.
+	 */
+	private _navigableColumnIndexes(): number[] {
+		const columns: any = this.settingsSmartTable?.columns || {};
+		const visible = Object.keys(columns).filter((id) => !columns[id]?.hide);
+		return EmployeesComponent.NAVIGABLE_COLUMNS.map((id) => visible.indexOf(id)).filter((i) => i >= 0);
 	}
 
 	/**
@@ -210,16 +261,21 @@ export class EmployeesComponent extends PaginationFilterBaseComponent implements
 	 * @param param0 Object containing selection information.
 	 */
 	/**
-	 * Row click — select, then open that employee's activity.
+	 * Row click — select, and open that employee's activity only when the click
+	 * came from the id or name cell.
 	 *
 	 * Separate from selectEmployee() on purpose. edit() and delete() call that
 	 * method internally to set the current row before acting; navigating from
 	 * inside it would send the page away mid-action. Only a genuine click from
 	 * the table reaches here.
+	 *
+	 * Selection still happens wherever the click landed — a click on the status
+	 * or actions cell is meant to act on that row, so it must become the current
+	 * one. Only the navigation is gated; see _watchNavigableCellClicks().
 	 */
 	onRowSelect({ isSelected, data }): void {
 		this.selectEmployee({ isSelected, data });
-		if (isSelected && data?.id) {
+		if (isSelected && data?.id && this._navigateOnRowSelect) {
 			this._router.navigate(['/pages/employees/activity/productivity'], {
 				queryParams: { employeeId: data.id },
 				queryParamsHandling: 'merge'
