@@ -29,6 +29,54 @@
 	<section class="fields-section">
 		<div class="accordion-section">
 			<nb-accordion #accordion>
+				<!--
+					Tracker department. Saved on its own rather than through the form
+					below: that form is Gauzy's employee record, while this writes the
+					employee-settings row the tracker shares, and merging the two
+					submits would risk one overwriting the other's fields.
+				-->
+				<nb-accordion-item #tracker [expanded]="true">
+					<nb-accordion-item-header>Tracker department</nb-accordion-item-header>
+					<nb-accordion-item-body>
+						<div class="fields">
+							<p class="text-hint">
+								App productivity rules are kept per department. Until one is chosen here,
+								Productivity reports this employee's whole day as Neutral. This is separate
+								from the Department column on the employee list, which shows Gauzy's own
+								departments and can hold more than one.
+							</p>
+							<div class="row align-items-center">
+								<div class="col-6">
+									<nb-select
+										fullWidth
+										placeholder="No department"
+										[(selected)]="departmentId"
+									>
+										<nb-option value="">No department</nb-option>
+										@for (d of departments; track d.id) {
+											<nb-option [value]="d.id">{{ d.name }}</nb-option>
+										}
+									</nb-select>
+								</div>
+								<div class="col-6">
+									<button
+										nbButton
+										status="primary"
+										size="small"
+										type="button"
+										[disabled]="departmentSaving"
+										(click)="saveDepartment()"
+									>
+										{{ departmentSaving ? 'Saving…' : 'Save department' }}
+									</button>
+								</div>
+							</div>
+							@if (departmentNote) {
+								<p class="text-hint mt-2">{{ departmentNote }}</p>
+							}
+						</div>
+					</nb-accordion-item-body>
+				</nb-accordion-item>
 				<nb-accordion-item #general [expanded]="true">
 					<nb-accordion-item-header>
 						{{ 'EMPLOYEES_PAGE.EDIT_EMPLOYEE.GENERAL_SETTINGS' | translate }}
