@@ -18,7 +18,19 @@ APP_DIR="$HOME/.local/share/system-tracker"
 EXT_UUID="system-tracker-shot@local"
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
 UNIT_DIR="$HOME/.config/systemd/user"
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # repo root
+# Where the files to install are, which is NOT the same place in both layouts:
+# in the repo this script lives in packaging/ and the sources are one level up,
+# but build-bundle.sh puts it at the top of the archive with tracker/ as a
+# sibling. Resolving to the parent unconditionally sent a bundle install looking
+# outside the extracted folder — for ~/tracker/proc_tracker.py rather than
+# ~/system-tracker/tracker/proc_tracker.py — and set -e aborted on the first cp.
+# Probe for tracker/ instead of assuming either shape.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$HERE/tracker" ]; then
+    SRC="$HERE"                                  # extracted bundle
+else
+    SRC="$(cd "$HERE/.." && pwd)"                # repo checkout
+fi
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
