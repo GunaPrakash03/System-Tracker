@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>System-Tracker — how the deployment was set up</title>
+<style>
+  :root {
+    --ground: #f6f8f9;
+    --surface: #ffffff;
+    --surface-sunk: #eef2f3;
+    --ink: #12171c;
+    --ink-soft: #495861;
+    --ink-faint: #6d7f88;
+    --rule: #d3dcdf;
+    --rule-soft: #e4ebed;
+    --accent: #0f6f70;
+    --accent-ink: #0b5657;
+    --accent-wash: #e2f0ef;
+    --warn: #8a5300;
+    --warn-wash: #fbf0dd;
+    --warn-rule: #e0bd7f;
+    --code-ground: #10171a;
+    --code-ink: #d6e2e5;
+    --code-dim: #7e939a;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1315;
+      --surface: #131c1f;
+      --surface-sunk: #0a1012;
+      --ink: #e2ebed;
+      --ink-soft: #a7b8bd;
+      --ink-faint: #7e9299;
+      --rule: #24343a;
+      --rule-soft: #1a272b;
+      --accent: #55bfbd;
+      --accent-ink: #7ad4d1;
+      --accent-wash: #102b2c;
+      --warn: #d9a55b;
+      --warn-wash: #271e0e;
+      --warn-rule: #5c4720;
+      --code-ground: #080d0f;
+      --code-ink: #cfdde0;
+      --code-dim: #6d838a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1315;
+    --surface: #131c1f;
+    --surface-sunk: #0a1012;
+    --ink: #e2ebed;
+    --ink-soft: #a7b8bd;
+    --ink-faint: #7e9299;
+    --rule: #24343a;
+    --rule-soft: #1a272b;
+    --accent: #55bfbd;
+    --accent-ink: #7ad4d1;
+    --accent-wash: #102b2c;
+    --warn: #d9a55b;
+    --warn-wash: #271e0e;
+    --warn-rule: #5c4720;
+    --code-ground: #080d0f;
+    --code-ink: #cfdde0;
+    --code-dim: #6d838a;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 50rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+
+  .masthead { display: grid; gap: 1rem; padding-bottom: 2rem; border-bottom: 1px solid var(--rule); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); margin: 0;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 600;
+    font-size: clamp(2rem, 5vw, 2.85rem); line-height: 1.1;
+    letter-spacing: -0.015em; text-wrap: balance; margin: 0;
+  }
+  .standfirst { font-size: 1.1rem; color: var(--ink-soft); margin: 0; max-width: 43rem; }
+
+  /* topology */
+  .topology {
+    margin-top: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.4rem 1.5rem;
+    overflow-x: auto;
+  }
+  .topology pre {
+    margin: 0; font-family: var(--mono); font-size: 0.78rem;
+    line-height: 1.75; color: var(--ink-soft);
+  }
+  .topology .hi { color: var(--accent-ink); font-weight: 600; }
+
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.4rem;
+    line-height: 1.25; letter-spacing: -0.01em; text-wrap: balance; margin: 0;
+  }
+  h3 { font-family: var(--sans); font-weight: 650; font-size: 0.95rem; margin: 0; }
+  p { margin: 0; max-width: 41rem; }
+
+  code:not(pre code) {
+    font-family: var(--mono); font-size: 0.85em;
+    background: var(--surface-sunk); border: 1px solid var(--rule-soft);
+    border-radius: 3px; padding: 0.08em 0.32em; word-break: break-word;
+  }
+
+  /* step rail */
+  .steps { margin-top: 3.5rem; display: grid; gap: 3rem; }
+  .step {
+    display: grid; grid-template-columns: 2.25rem 1fr;
+    column-gap: 1.4rem; row-gap: 0.9rem; position: relative;
+  }
+  .step::before {
+    content: ""; position: absolute; left: 1.125rem; top: 2.6rem;
+    bottom: -3rem; width: 1px; background: var(--rule);
+  }
+  .step:last-of-type::before { display: none; }
+  .marker {
+    grid-column: 1; grid-row: 1; width: 2.25rem; height: 2.25rem;
+    border-radius: 50%; background: var(--accent-wash);
+    border: 1px solid var(--accent); color: var(--accent-ink);
+    font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+    display: grid; place-items: center; position: relative; z-index: 1;
+  }
+  .step > h2 { grid-column: 2; grid-row: 1; align-self: center; }
+  .step-body { grid-column: 2; grid-row: 2; display: grid; gap: 1rem; }
+
+  @media (max-width: 34rem) {
+    .step { grid-template-columns: 1fr; }
+    .step::before { display: none; }
+    .step > h2, .step-body { grid-column: 1; }
+    .step > h2 { grid-row: 2; }
+    .step-body { grid-row: 3; }
+  }
+
+  pre.term {
+    margin: 0; background: var(--code-ground); color: var(--code-ink);
+    border-radius: 5px; padding: 0.95rem 1.1rem; overflow-x: auto;
+    font-family: var(--mono); font-size: 0.79rem; line-height: 1.75;
+  }
+  pre.term .dim { color: var(--code-dim); }
+  pre.term .v { color: #7fd1c4; }
+
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 28rem; }
+  th, td { text-align: left; padding: 0.5rem 1rem 0.5rem 0; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 600;
+  }
+  td code { white-space: nowrap; }
+
+  .note {
+    border-left: 3px solid var(--warn-rule); background: var(--warn-wash);
+    padding: 0.9rem 1.1rem; border-radius: 0 4px 4px 0; display: grid; gap: 0.4rem;
+  }
+  .note h3 {
+    font-size: 0.75rem; letter-spacing: 0.09em; text-transform: uppercase;
+    font-family: var(--mono); color: var(--warn);
+  }
+  .note p { font-size: 0.93rem; color: var(--ink-soft); }
+
+  footer {
+    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+    font-size: 0.85rem; color: var(--ink-faint); display: grid; gap: 0.4rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">System-Tracker · setup record</p>
+    <h1>How the deployment was set up</h1>
+    <p class="standfirst">
+      The configuration actually applied on 12 August 2026 — one public URL on Railway, the
+      screenshot store, and two Ubuntu workstations reporting into it.
+    </p>
+  </header>
+
+  <div class="topology">
+<pre>                    ┌────────────────────────────────────────────┐
+  browser  ────────▶│  <span class="hi">System-Tracker</span>   (public domain, :4200)  │
+  trackers ────────▶│    nginx                                   │
+                    │      /      → dashboard bundle             │
+                    │      /api/  → proxy ─┐                     │
+                    │      /public/ → proxy┤                     │
+                    └──────────────────────┼─────────────────────┘
+                                           ▼  private network
+                                     ┌───────────┐   ┌────────────┐
+                                     │    <span class="hi">api</span>    │──▶│  Postgres  │
+                                     │ no domain │   │            │
+                                     │  :3000    │   └────────────┘
+                                     └───────────┘
+                                           │
+                                     ┌───────────────┐
+                                     │  api-volume   │  screenshots
+                                     └───────────────┘</pre>
+  </div>
+
+  <div class="steps">
+
+    <!-- 1 -->
+    <section class="step">
+      <div class="marker">1</div>
+      <h2>Built and pushed the two images</h2>
+      <div class="step-body">
+        <p>
+          Both images are built locally and deployed by tag — Railway never builds them. The webapp
+          image had never been pushed at all; its registry repository did not exist.
+        </p>
+        <pre class="term">cd ~/System-Tracker/gauzy
+
+docker buildx build -f .deploy/webapp/Dockerfile \
+  --build-arg NODE_ENV=production \
+  --build-arg NODE_OPTIONS=--max-old-space-size=7168 \
+  --build-arg GAUZY_APP_COMMIT=<span class="v">&lt;short-sha&gt;</span> \
+  -t ghcr.io/gunaprakash03/tracker-webapp:<span class="v">&lt;short-sha&gt;</span> --load .
+
+docker push ghcr.io/gunaprakash03/tracker-webapp:<span class="v">&lt;short-sha&gt;</span></pre>
+        <div class="note">
+          <h3>Tag with the commit, never latest</h3>
+          <p>
+            Railway caches by digest, so a moved <code>latest</code> silently redeploys the previous
+            build. The heap is set to 7&nbsp;GB here rather than the runbook's 12&nbsp;GB because
+            this machine had 8&nbsp;GB free.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="step">
+      <div class="marker">2</div>
+      <h2>Created the <code>api</code> service — with no public domain</h2>
+      <div class="step-body">
+        <p>
+          A second service on Railway, deployed from the API image. It is reachable only over the
+          private network, because no domain is attached to it.
+        </p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Image</td><td><code>ghcr.io/gunaprakash03/tracker-api:3395595</code></td></tr>
+              <tr><td>Health check</td><td><code>/api/health</code>, 300 s timeout</td></tr>
+              <tr><td>Volume</td><td><code>/srv/gauzy/apps/api/public</code></td></tr>
+              <tr><td>Domain</td><td>none — this is what keeps it private</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Twenty-three variables. The ones that cause silent failures if wrong:</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Variable</th><th>Value</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td><code>DB_TYPE</code></td><td><code>postgres</code></td><td>The image bakes <code>better-sqlite3</code> and would serve a demo database</td></tr>
+              <tr><td><code>API_HOST</code></td><td><code>::</code></td><td>The private network needs a socket the proxy can reach</td></tr>
+              <tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Timestamps are naive; the process timezone decides how they read</td></tr>
+              <tr><td><code>DB_SYNCHRONIZE</code></td><td><code>false</code></td><td>Never schema-sync against a restored database</td></tr>
+              <tr><td><code>IS_DOCKER</code></td><td><code>true</code></td><td>Selects the asset path the volume is mounted at</td></tr>
+              <tr><td><code>FILE_PROVIDER</code></td><td><code>LOCAL</code></td><td>Screenshots to the volume</td></tr>
+              <tr><td><code>API_BASE_URL</code><br><code>CLIENT_BASE_URL</code><br><code>ALLOWED_ORIGINS</code></td><td>the one public URL</td><td>Same origin throughout</td></tr>
+              <tr><td>JWT and session secrets</td><td>carried over unchanged</td><td>Keeps existing tokens and the restored database valid</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <h3>Registry credentials are a UI-only step</h3>
+          <p>
+            The images are private, and Railway's API does not expose registry credentials. The
+            service failed to deploy with <strong>no build and no deploy logs at all</strong> until
+            a GitHub token with <code>read:packages</code> was pasted into
+            <em>Settings → Source → Registry Credentials</em>. That signature — zero logs — means
+            the image pull failed before any container started.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="step">
+      <div class="marker">3</div>
+      <h2>Turned the original service into the webapp</h2>
+      <div class="step-body">
+        <p>
+          Rather than create a new service and take a new URL, the existing
+          <code>System-Tracker</code> service was repointed at the webapp image. The public address
+          is unchanged; what answers on it is not.
+        </p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Image</td><td><code>ghcr.io/gunaprakash03/tracker-webapp:&lt;sha&gt;</code></td></tr>
+              <tr><td>Target port</td><td><code>4200</code> — nginx hardcodes this; Railway's <code>PORT</code> is not consulted</td></tr>
+              <tr><td>Start command</td><td><code>./entrypoint.compose.sh nginx -g "daemon off;"</code></td></tr>
+              <tr><td>Health check</td><td><code>/</code></td></tr>
+              <tr><td><code>API_HOST</code></td><td><code>api.railway.internal</code></td></tr>
+              <tr><td><code>API_PORT</code></td><td><code>3000</code></td></tr>
+              <tr><td><code>COMPANY_NAME</code></td><td><code>Young Globes</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The stock <code>CMD</code> uses an entrypoint that serves static files with no
+          <code>/api/</code> proxy. The compose entrypoint is the one that writes the proxying
+          config, and Railway's start command overrides <code>CMD</code> — which is exactly enough,
+          because the image entrypoint is a pass-through.
+        </p>
+        <div class="note">
+          <h3>Branding is runtime, not source</h3>
+          <p>
+            The Dockerfile hardcodes Ever's company name as an image default, overriding what the
+            source says. Changing the footer needed only a Railway variable — no rebuild.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="step">
+      <div class="marker">4</div>
+      <h2>Loaded the screenshot store</h2>
+      <div class="step-body">
+        <p>
+          The database already held the screenshot records; the image files had never left this
+          machine. 8257 files, 959&nbsp;MB, streamed into the volume over SSH.
+        </p>
+        <pre class="term">railway ssh keys add            <span class="dim"># once, from the ssh agent</span>
+
+tar -C ~/ever-gauzy/apps/api/public -cf - screenshots \
+  | railway ssh --service api --environment production -- \
+      tar xf - --no-same-owner -C /srv/gauzy/apps/api/public
+
+railway ssh --service api -- chown -R node:node /srv/gauzy/apps/api/public</pre>
+        <div class="note">
+          <h3>The chown is not optional</h3>
+          <p>
+            The API runs as <code>node</code> and the volume is created owned by <code>root</code>,
+            so uploads fail with <code>EACCES</code> — and the API answers
+            <strong><code>HTTP 201</code> anyway</strong>, so the tracker logs a success for an
+            image that was never written. Any newly created volume needs this.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="step">
+      <div class="marker">5</div>
+      <h2>Pointed the first workstation at the server</h2>
+      <div class="step-body">
+        <p>
+          sys0041 already had the tracker installed but was posting to <code>localhost:3000</code>,
+          where nothing was listening. The service uses the installed config, not the copy in the
+          repository.
+        </p>
+        <pre class="term"><span class="dim"># ~/.local/share/system-tracker/config.json</span>
+server_url = https://system-tracker-production.up.railway.app
+email      = gunaprakash@youngglobes.com
+
+systemctl --user restart system-tracker</pre>
+        <p>
+          The resolved employee, organisation and tenant IDs matched those recorded in the handover,
+          confirming that account is the renamed original administrator.
+        </p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="step">
+      <div class="marker">6</div>
+      <h2>Provisioned the second workstation</h2>
+      <div class="step-body">
+        <p>
+          sys0028, from a single archive. Its own employee account —
+          <code>guna@youngglobes.com</code> — because activity is attributed per employee and two
+          machines sharing an account cannot be separated afterwards.
+        </p>
+        <pre class="term"><span class="dim"># on the machine holding the repository</span>
+./packaging/build-bundle.sh 2026-08-12
+scp dist/system-tracker-2026-08-12.tar.gz <span class="v">user@sys0028</span>:~/
+
+<span class="dim"># on sys0028</span>
+sudo apt install -y python3-gi
+tar xzf system-tracker-2026-08-12.tar.gz          <span class="dim"># flat, no wrapper folder</span>
+
+GAUZY_URL=https://system-tracker-production.up.railway.app \
+GAUZY_EMAIL=<span class="v">guna@youngglobes.com</span> \
+GAUZY_PASSWORD=<span class="v">'…'</span> \
+./install.sh
+
+systemctl --user status system-tracker</pre>
+        <p>
+          The installer puts the tracker in <code>~/.local/share/system-tracker/</code>, writes the
+          config at mode <code>0600</code>, installs the silent-screenshot GNOME extension, and
+          registers a systemd user service that starts at login.
+        </p>
+        <div class="note">
+          <h3>Three fixes this first real install forced</h3>
+          <p>
+            The bundle could not install as shipped: the installer resolved its sources one
+            directory too high, the archive nested everything under a wrapper folder, and the
+            example config recorded local time against an API that stores UTC — putting every slot
+            five and a half hours in the future. Use a bundle built after those fixes.
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>Dashboard, API and trackers all answer on one origin: system-tracker-production.up.railway.app</span>
+    <span>Neither the API nor Postgres is reachable from outside; the API has no domain and Postgres has no TCP proxy.</span>
+  </footer>
+
+</div>
+</body>
+</html>

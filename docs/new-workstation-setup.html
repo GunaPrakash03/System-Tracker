@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>System-Tracker — new workstation setup</title>
+<style>
+  :root {
+    --ground: #f6f8f9;
+    --surface: #ffffff;
+    --surface-sunk: #eef2f3;
+    --ink: #12171c;
+    --ink-soft: #495861;
+    --ink-faint: #6d7f88;
+    --rule: #d3dcdf;
+    --rule-soft: #e4ebed;
+    --accent: #0f6f70;
+    --accent-ink: #0b5657;
+    --accent-wash: #e2f0ef;
+    --warn: #8a5300;
+    --warn-wash: #fbf0dd;
+    --warn-rule: #e0bd7f;
+    --stop: #a02c2c;
+    --stop-wash: #fbe9e7;
+    --stop-rule: #e2a49c;
+    --ok: #1d6b47;
+    --code-ground: #10171a;
+    --code-ink: #d6e2e5;
+    --code-dim: #7e939a;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1315;
+      --surface: #131c1f;
+      --surface-sunk: #0a1012;
+      --ink: #e2ebed;
+      --ink-soft: #a7b8bd;
+      --ink-faint: #7e9299;
+      --rule: #24343a;
+      --rule-soft: #1a272b;
+      --accent: #55bfbd;
+      --accent-ink: #7ad4d1;
+      --accent-wash: #102b2c;
+      --warn: #d9a55b;
+      --warn-wash: #271e0e;
+      --warn-rule: #5c4720;
+      --stop: #e8897f;
+      --stop-wash: #2a1614;
+      --stop-rule: #5f2f2a;
+      --ok: #6cc298;
+      --code-ground: #080d0f;
+      --code-ink: #cfdde0;
+      --code-dim: #6d838a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1315;
+    --surface: #131c1f;
+    --surface-sunk: #0a1012;
+    --ink: #e2ebed;
+    --ink-soft: #a7b8bd;
+    --ink-faint: #7e9299;
+    --rule: #24343a;
+    --rule-soft: #1a272b;
+    --accent: #55bfbd;
+    --accent-ink: #7ad4d1;
+    --accent-wash: #102b2c;
+    --warn: #d9a55b;
+    --warn-wash: #271e0e;
+    --warn-rule: #5c4720;
+    --stop: #e8897f;
+    --stop-wash: #2a1614;
+    --stop-rule: #5f2f2a;
+    --ok: #6cc298;
+    --code-ground: #080d0f;
+    --code-ink: #cfdde0;
+    --code-dim: #6d838a;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: grid; gap: 1rem; padding-bottom: 2rem; border-bottom: 1px solid var(--rule); }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 5vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 42rem;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    margin-top: 0.25rem;
+  }
+  .meta b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- generic prose ---------- */
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.45rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: 40rem; }
+
+  a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  code:not(pre code) {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: 0.08em 0.32em;
+    word-break: break-word;
+  }
+
+  strong { font-weight: 650; }
+
+  /* ---------- the pre-flight card ---------- */
+
+  .preflight {
+    margin-top: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.5rem 1.6rem;
+    display: grid;
+    gap: 1rem;
+  }
+  .preflight ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.45rem; color: var(--ink-soft); }
+  .preflight li::marker { color: var(--accent); }
+
+  /* ---------- step rail ---------- */
+
+  .steps {
+    margin-top: 3.5rem;
+    display: grid;
+    gap: 3rem;
+  }
+
+  .step {
+    display: grid;
+    grid-template-columns: 2.25rem 1fr;
+    column-gap: 1.4rem;
+    row-gap: 0.9rem;
+    position: relative;
+  }
+
+  .step::before {
+    content: "";
+    position: absolute;
+    left: 1.125rem;
+    top: 2.6rem;
+    bottom: -3rem;
+    width: 1px;
+    background: var(--rule);
+  }
+  .step:last-of-type::before { display: none; }
+
+  .marker {
+    grid-column: 1;
+    grid-row: 1;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    background: var(--accent-wash);
+    border: 1px solid var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: grid;
+    place-items: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .step > h2 { grid-column: 2; grid-row: 1; align-self: center; }
+  .step-body { grid-column: 2; grid-row: 2; display: grid; gap: 1rem; }
+
+  @media (max-width: 34rem) {
+    .step { grid-template-columns: 1fr; }
+    .step::before { display: none; }
+    .step > h2, .step-body { grid-column: 1; }
+    .step > h2 { grid-row: 2; }
+    .step-body { grid-row: 3; }
+  }
+
+  /* ---------- code ---------- */
+
+  .cmd {
+    position: relative;
+    background: var(--code-ground);
+    border-radius: 6px;
+    border: 1px solid transparent;
+  }
+  :root[data-theme="dark"] .cmd { border-color: var(--rule); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .cmd { border-color: var(--rule); }
+  }
+
+  .cmd pre {
+    margin: 0;
+    padding: 1.05rem 3.6rem 1.05rem 1.1rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.75;
+    color: var(--code-ink);
+    tab-size: 2;
+  }
+  .cmd .c { color: var(--code-dim); }
+  .cmd .v { color: #7fd1c4; }
+
+  .copy {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--code-dim);
+    background: transparent;
+    border: 1px solid #2b3a3f;
+    border-radius: 3px;
+    padding: 0.28rem 0.5rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .copy:hover { color: var(--code-ink); border-color: #46595f; }
+  .copy[data-done="1"] { color: #7fd1c4; border-color: #2f6b63; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border-left: 3px solid var(--rule);
+    background: var(--surface);
+    padding: 0.95rem 1.1rem;
+    border-radius: 0 4px 4px 0;
+    display: grid;
+    gap: 0.4rem;
+  }
+  .note h3 { font-size: 0.78rem; letter-spacing: 0.09em; text-transform: uppercase; font-family: var(--mono); font-weight: 600; }
+  .note p { font-size: 0.95rem; color: var(--ink-soft); }
+
+  .note.warn { border-left-color: var(--warn-rule); background: var(--warn-wash); }
+  .note.warn h3 { color: var(--warn); }
+  .note.stop { border-left-color: var(--stop-rule); background: var(--stop-wash); }
+  .note.stop h3 { color: var(--stop); }
+
+  /* ---------- expected-output block ---------- */
+
+  .expect {
+    background: var(--surface-sunk);
+    border: 1px dashed var(--rule);
+    border-radius: 5px;
+    padding: 0.9rem 1.05rem;
+    overflow-x: auto;
+  }
+  .expect pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  .expect .ok { color: var(--ok); font-weight: 600; }
+  .expect-label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  /* ---------- reference table ---------- */
+
+  .after { margin-top: 4.5rem; padding-top: 2.5rem; border-top: 1px solid var(--rule); display: grid; gap: 2rem; }
+
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 30rem; }
+  th, td { text-align: left; padding: 0.6rem 0.9rem 0.6rem 0; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  td code { white-space: nowrap; }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">System-Tracker · provisioning runbook</p>
+    <h1>Setting up tracking on a new Ubuntu workstation</h1>
+    <p class="standfirst">
+      Six steps, roughly ten minutes. The tracker is stdlib-only Python, so there is nothing to
+      compile and nothing to install with <code>pip</code> — one 40&nbsp;KB archive and a single
+      command do the whole job.
+    </p>
+    <div class="meta">
+      <span><b>Target</b> Ubuntu with GNOME</span>
+      <span><b>Server</b> system-tracker-production.up.railway.app</span>
+      <span><b>Bundle</b> system-tracker-2026-08-12.tar.gz</span>
+    </div>
+  </header>
+
+  <section class="preflight">
+    <h2>Before you start</h2>
+    <ul>
+      <li>An <strong>employee account of its own</strong> for this machine — created in step&nbsp;1.</li>
+      <li>Shell access on the new machine as the person who will actually use it.</li>
+      <li><code>sudo</code> once, only to install <code>python3-gi</code>.</li>
+    </ul>
+
+    <h3 style="margin-top:0.4rem;">Get a current archive — on the machine with the repository</h3>
+    <p style="font-size:0.95rem; color:var(--ink-soft);">
+      This block is the <strong>only</strong> part that needs the repository. The new workstation
+      never sees it: everything from step&nbsp;2 onwards runs from the single archive file.
+      Rebuild rather than reuse whatever is sitting in <code>dist/</code> — the installer copies
+      files verbatim, so a stale archive silently installs old code.
+    </p>
+    <div class="cmd">
+      <button class="copy" type="button">Copy</button>
+<pre>cd ~/System-Tracker
+
+<span class="c"># what is already there, and how old</span>
+ls -lh dist/
+
+<span class="c"># rebuild from current source; the argument is just the version stamp</span>
+./packaging/build-bundle.sh 2026-08-12
+
+<span class="c"># confirm the contents before sending it anywhere</span>
+tar tzf dist/system-tracker-2026-08-12.tar.gz
+sha256sum dist/system-tracker-2026-08-12.tar.gz</pre>
+    </div>
+    <div class="expect">
+      <span class="expect-label">Expected — a flat archive, no wrapper directory, about 40 KB</span>
+<pre>./install.sh
+./uninstall.sh
+./tracker/proc_tracker.py
+./tracker/report.py
+./tracker/config.example.json
+./tracker/README.md
+./tracker/gnome-extension/system-tracker-shot@local/metadata.json
+./tracker/gnome-extension/system-tracker-shot@local/extension.js</pre>
+    </div>
+    <p style="font-size:0.95rem; color:var(--ink-soft);">
+      Keep the <code>sha256sum</code> output — step&nbsp;2 compares against it to prove the copy
+      arrived intact.
+    </p>
+
+    <div class="note warn">
+      <h3>Run as the user, not as root</h3>
+      <p>
+        This is a per-user install with a systemd <em>user</em> service and a GNOME extension.
+        Running <code>install.sh</code> under <code>sudo</code> puts everything in root's home,
+        where it will never start.
+      </p>
+    </div>
+  </section>
+
+  <div class="steps">
+
+    <!-- 1 -->
+    <section class="step">
+      <div class="marker">1</div>
+      <h2>Create an employee account for this machine</h2>
+      <div class="step-body">
+        <p>
+          In the dashboard: <strong>Employees → Add</strong>, using the person's own email
+          address and a password only they will use.
+        </p>
+        <div class="note stop">
+          <h3>Do not reuse an existing account</h3>
+          <p>
+            Every time slot and screenshot is attributed to whichever employee the tracker logs in
+            as. Two machines sharing one account merge into a single timeline, and there is no way
+            to separate them afterwards.
+          </p>
+        </div>
+        <p>
+          The account must resolve to an <strong>employee</strong>, not merely a user — login fails
+          otherwise and the service will restart forever without collecting anything.
+        </p>
+        <p>
+          For screenshots, switch on <strong>Allow Screen Capture</strong> for that employee under
+          Settings → Tracker Settings. The tracker reads this from the dashboard on a timer, so it
+          stays off until you enable it there.
+        </p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="step">
+      <div class="marker">2</div>
+      <h2>Copy the bundle across</h2>
+      <div class="step-body">
+        <p>From the machine holding the repository:</p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre><span class="c"># replace user@new-machine with the real host</span>
+scp ~/System-Tracker/dist/system-tracker-2026-08-12.tar.gz <span class="v">user@new-machine</span>:~/</pre>
+        </div>
+        <p>
+          A USB stick works equally well — it is one small file with no dependencies of any kind.
+        </p>
+        <p>Then, <strong>on the new machine</strong>, check what landed:</p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>cd ~
+ls -lh system-tracker-2026-08-12.tar.gz
+sha256sum system-tracker-2026-08-12.tar.gz
+
+<span class="c"># look inside without unpacking</span>
+tar tzf system-tracker-2026-08-12.tar.gz</pre>
+        </div>
+        <p>
+          The checksum must match the one from <em>Before you start</em>. If it differs the copy is
+          truncated or corrupt — send it again rather than pressing on, because a partial archive
+          extracts without complaint and fails later in ways that look like a configuration
+          problem.
+        </p>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="step">
+      <div class="marker">3</div>
+      <h2>Install the one prerequisite</h2>
+      <div class="step-body">
+        <p>On the new machine:</p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>python3 --version            <span class="c"># needs 3.8 or newer; Ubuntu ships this</span>
+sudo apt install -y python3-gi
+echo "$XDG_SESSION_TYPE"     <span class="c"># x11 or wayland — both are supported</span></pre>
+        </div>
+        <p>
+          <code>python3-gi</code> is the only package required, and only for screenshots. Process
+          and activity tracking work without it.
+        </p>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="step">
+      <div class="marker">4</div>
+      <h2>Run the installer</h2>
+      <div class="step-body">
+        <p>
+          The archive has no wrapper directory, so it unpacks straight into wherever you are —
+          no folder to enter, no flags to remember. Then run the installer with the email and
+          password from step&nbsp;1:
+        </p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>cd ~
+tar xzf system-tracker-2026-08-12.tar.gz
+ls -l install.sh uninstall.sh tracker/
+
+GAUZY_URL=https://system-tracker-production.up.railway.app \
+GAUZY_EMAIL=<span class="v">newperson@youngglobes.com</span> \
+GAUZY_PASSWORD=<span class="v">'their-password'</span> \
+./install.sh</pre>
+        </div>
+        <div class="expect">
+          <span class="expect-label">Three things land in the home directory</span>
+<pre>install.sh    uninstall.sh    tracker/</pre>
+        </div>
+        <div class="note warn">
+          <h3>Extract from the terminal, not the file manager</h3>
+          <p>
+            Because the archive has no single root, GNOME's Archive Manager will wrap it in a
+            folder of its own to avoid scattering files — which is the folder you were trying to
+            avoid. The <code>tar xzf</code> line above does the right thing.
+          </p>
+        </div>
+        <div class="note">
+          <h3>Quote the password</h3>
+          <p>
+            The single quotes around it are not optional. Passwords containing
+            <code>$</code>, <code>!</code>, <code>&amp;</code> or a space will otherwise be mangled
+            by the shell before the installer ever sees them, and the failure surfaces later as a
+            login error that looks like a wrong password.
+          </p>
+        </div>
+        <p>That single command:</p>
+        <ul style="margin:0; padding-left:1.1rem; display:grid; gap:0.35rem; color:var(--ink-soft);">
+          <li>installs the tracker to <code>~/.local/share/system-tracker/</code></li>
+          <li>writes <code>config.json</code> at mode <code>0600</code>, credentials included</li>
+          <li>installs and enables the silent-screenshot GNOME extension</li>
+          <li>creates and starts a systemd user service that auto-starts at login</li>
+        </ul>
+        <p>
+          The installer <em>copies</em> what it needs, so once step&nbsp;6 confirms the service is
+          running you can clear the home directory again:
+        </p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>rm -rf ~/tracker ~/install.sh ~/system-tracker-2026-08-12.tar.gz</pre>
+        </div>
+        <div class="note">
+          <h3>Keep uninstall.sh</h3>
+          <p>
+            It is self-contained — it touches only <code>~/.local/share</code> and systemd, and
+            needs none of the files above. Leave it in the home directory and removal stays a
+            one-liner later.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="step">
+      <div class="marker">5</div>
+      <h2>Log out and back in, once</h2>
+      <div class="step-body">
+        <p>
+          GNOME will not load a newly installed extension into a session that is already running.
+          If the installer warned that it could not enable the extension, log out, log back in,
+          and then:
+        </p>
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>gnome-extensions enable system-tracker-shot@local</pre>
+        </div>
+        <p>Skip this and everything works except screenshots.</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="step">
+      <div class="marker">6</div>
+      <h2>Watch it come up</h2>
+      <div class="step-body">
+        <div class="cmd">
+          <button class="copy" type="button">Copy</button>
+<pre>systemctl --user status system-tracker
+journalctl --user -u system-tracker -f</pre>
+        </div>
+        <div class="expect">
+          <span class="expect-label">What success looks like, within a minute or two</span>
+<pre>Login https://system-tracker-production.up.railway.app as newperson@youngglobes.com ...
+<span class="ok">OK. employee=8f21c4de | interval 60s, focus sample 5s</span>
+screenshots: controlled by the dashboard toggle (Allow Screen Capture) — currently ON
+ACTIVE 100% (60/60s) | 18 apps, on-screen: chrome | 2 tabs | shot 240KB</pre>
+        </div>
+        <div class="note stop">
+          <h3>If you see “login failed”, stop here</h3>
+          <p>
+            The credentials are wrong, or the account has no employee record. The service will
+            restart on a loop and collect nothing at all — it is not a slow start, and waiting
+            will not fix it. Go back to step&nbsp;1.
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <section class="after">
+
+    <div style="display:grid; gap:0.9rem;">
+      <h2>Then confirm it reached the server</h2>
+      <p>
+        Open <strong>Employees → that person → Activity</strong> in the dashboard and check that
+        both a time slot and a screenshot have appeared.
+      </p>
+      <div class="note warn">
+        <h3>The local log is not proof of storage</h3>
+        <p>
+          When the API cannot write to its volume it still answers <code>HTTP 201</code>, so the
+          tracker logs <code>shot 240KB</code> for a screenshot that was never saved. This is a
+          real failure we hit in production. Verify in the dashboard, not in the journal.
+        </p>
+      </div>
+    </div>
+
+    <div style="display:grid; gap:0.9rem;">
+      <h2>Everyday commands</h2>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Task</th><th>Command</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Service state</td><td><code>systemctl --user status system-tracker</code></td></tr>
+            <tr><td>Follow the log</td><td><code>journalctl --user -u system-tracker -f</code></td></tr>
+            <tr><td>Restart after a config edit</td><td><code>systemctl --user restart system-tracker</code></td></tr>
+            <tr><td>Edit configuration</td><td><code>~/.local/share/system-tracker/config.json</code></td></tr>
+            <tr><td>Offline running-time report</td><td><code>python3 ~/.local/share/system-tracker/report.py --no-gauzy</code></td></tr>
+            <tr><td>Remove everything</td><td><code>~/uninstall.sh</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:grid; gap:0.9rem;">
+      <h2>Two things worth knowing</h2>
+      <div class="note">
+        <h3>Rebuild the bundle whenever the tracker changes</h3>
+        <p>
+          <code>./packaging/build-bundle.sh 2026-08-12</code> from the repository root. The
+          installer copies files verbatim, so a stale archive silently ships old code — the one
+          checked into <code>dist/</code> was seven commits behind when this guide was written.
+        </p>
+      </div>
+      <div class="note">
+        <h3>Windows machines take a different route</h3>
+        <p>
+          This tracker is Linux-only by design: it depends on <code>/proc</code>, X11 or Mutter,
+          and GNOME's screenshot service. On Windows, install the official Ever Gauzy Desktop
+          Agent instead — it reports into the same instance, so the dashboard stays unified.
+        </p>
+      </div>
+    </div>
+
+  </section>
+
+  <footer>
+    <span>System-Tracker provisioning runbook · bundle <code>system-tracker-2026-08-12.tar.gz</code></span>
+    <span>Configuration lives at <code>~/.local/share/system-tracker/config.json</code>, mode 0600. Treat it as a credential.</span>
+  </footer>
+
+</div>
+
+<script>
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.parentElement.querySelector("pre");
+      if (!pre) return;
+      // Strip the comment spans so the clipboard holds runnable lines only.
+      var clone = pre.cloneNode(true);
+      clone.querySelectorAll(".c").forEach(function (c) { c.remove(); });
+      var text = clone.textContent.split("\n").map(function (l) { return l.replace(/\s+$/, ""); })
+        .filter(function (l, i, a) { return l.length || (i > 0 && i < a.length - 1); })
+        .join("\n").trim();
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = "Copied";
+        btn.setAttribute("data-done", "1");
+        setTimeout(function () {
+          btn.textContent = "Copy";
+          btn.removeAttribute("data-done");
+        }, 1600);
+      }).catch(function () {
+        btn.textContent = "Press ⌘C";
+        setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      });
+    });
+  });
+</script>
+</body>
+</html>
