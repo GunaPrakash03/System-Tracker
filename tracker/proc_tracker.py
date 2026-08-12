@@ -160,6 +160,18 @@ DEFAULT_CONFIG = {
     # Downscale divisor. Higher blurs harder; 20 makes body text unreadable while
     # window shapes stay recognisable.
     "blur_strength": 20,
+    # Scale captures down to at most this width before upload, keeping the aspect
+    # ratio. 0 leaves them at native resolution. 800 halves a 1600x900 screen and
+    # removes about 62% of the stored bytes while leaving 14px monospace text
+    # readable; a third of native is where text stops being legible. Never
+    # upscales, so a smaller screen is left alone.
+    "screenshot_max_width": 800,
+    # Encode as JPEG at this quality instead of PNG. 0 keeps PNG. 75 roughly
+    # halves what scaling alone achieves — 800x450 is ~92 KB as PNG, ~52 KB here.
+    # Screenshots are flat colour with text over it: PNG stores that faithfully,
+    # JPEG approximates it, and the ringing around glyphs does not matter at
+    # monitoring resolution.
+    "screenshot_jpeg_quality": 75,
     # Where the screenshot on/off switch lives:
     #   "dashboard" : the employee's "Allow Screen Capture" toggle in Gauzy
     #                 (Employees -> employee -> Edit -> Settings) is the live
@@ -871,6 +883,87 @@ def blur_png(png, strength):
         return None
 
 
+def downscale_png(png, max_width):
+    """PNG bytes scaled so the width is at most max_width, original on failure.
+
+    Storage is the only cost of a screenshot that grows without bound: at full
+    resolution one workstation writes roughly 66 MB a day, so ten of them fill a
+    45 GB volume in about three months. Halving the dimensions removes about 62%
+    of that, and a monitoring capture needs to show which window was on screen
+    rather than be a faithful reproduction of it.
+
+    Scaling proportionally rather than to a fixed size means a fleet of mixed
+    monitor resolutions all lands at a comparable cost per image.
+
+    Unlike blur_png this returns the ORIGINAL on failure rather than None. A
+    full-size screenshot is merely expensive; an unblurred one breaks a promise
+    made to the employee. Cost may degrade silently, privacy may not.
+    """
+    if not png or not max_width:
+        return png
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+
+        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+        loader.write(png)
+        loader.close()
+        pb = loader.get_pixbuf()
+        if pb is None:
+            return png
+        w, h = pb.get_width(), pb.get_height()
+        if w <= int(max_width):
+            return png                       # already small enough; do not upscale
+        nw = int(max_width)
+        nh = max(1, round(h * nw / w))
+        small = pb.scale_simple(nw, nh, GdkPixbuf.InterpType.BILINEAR)
+        if small is None:
+            return png
+        ok, buf = small.save_to_bufferv("png", [], [])
+        return bytes(buf) if ok else png
+    except Exception:
+        return png
+
+
+def encode_jpeg(png, quality):
+    """(bytes, filename, content_type) — JPEG if asked for, else the PNG as-is.
+
+    Runs LAST, after any scaling and blurring, because both of those load and
+    save PNG: handing them a JPEG would make the loader fail and the shot would
+    be dropped or left unscaled.
+
+    JPEG roughly halves what scaling alone achieves — 800x450 costs about 92 KB
+    as PNG and 52 KB at quality 75 — because a screenshot is mostly flat colour
+    with text over it, which PNG stores faithfully and JPEG approximates. The
+    approximation shows as ringing around text, which at monitoring resolution
+    is not a meaningful loss.
+
+    The server derives the stored extension from the upload filename and builds
+    its thumbnail from the bytes, so both must change together; sending JPEG
+    bytes named .png stores a file no browser will render.
+    """
+    if not png or not quality:
+        return png, "screenshot.png", "image/png"
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+
+        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+        loader.write(png)
+        loader.close()
+        pb = loader.get_pixbuf()
+        if pb is None:
+            return png, "screenshot.png", "image/png"
+        ok, buf = pb.save_to_bufferv("jpeg", ["quality"], [str(int(quality))])
+        if not ok:
+            return png, "screenshot.png", "image/png"
+        return bytes(buf), "screenshot.jpg", "image/jpeg"
+    except Exception:
+        return png, "screenshot.png", "image/png"
+
+
 def capture_screenshot(cfg):
     """PNG bytes of the whole screen, or None if capture is unavailable.
 
@@ -1414,7 +1507,8 @@ class GauzyClient:
         }
         return self._request("POST", "/api/timesheet/time-slot", payload)
 
-    def post_screenshot(self, png, recorded_at, time_slot_id=None):
+    def post_screenshot(self, data, recorded_at, time_slot_id=None,
+                        filename="screenshot.png", image_type="image/png"):
         """Upload one screenshot and attach it to a time slot.
 
         The file field MUST be named `file` — the server's upload interceptor
@@ -1431,8 +1525,11 @@ class GauzyClient:
             "recordedAt": recorded_at.isoformat(),
             "timeSlotId": time_slot_id,
         }
-        body, content_type = _multipart_body(fields, "file", "screenshot.png",
-                                             "image/png", png)
+        # filename and image_type travel together with the bytes: the server
+        # derives the stored extension from the name, so JPEG bytes sent as .png
+        # would store a file no browser will render.
+        body, content_type = _multipart_body(fields, "file", filename,
+                                             image_type, data)
         return self._request("POST", "/api/timesheet/screenshot",
                              raw=body, content_type=content_type)
 
@@ -1480,21 +1577,30 @@ def _log_screenshot_mode(cfg, client=None):
                  "— WARNING: the screen will FLASH")
 
 
-def _upload_screenshot(client, cfg, png, started, slot_resp):
+def _upload_screenshot(client, cfg, png, started, slot_resp, quality=0):
     """Attach this interval's screenshot to the slot just created, and return a
     short note for the log line.
+
+    Encoding happens here rather than inside post_screenshot so the log can
+    report what was actually sent. Reporting the pre-encoding size would claim
+    92KB for a 52KB upload, and this log is the first thing anyone reads when
+    asking whether the storage change took effect.
 
     Never raises: a screenshot that fails to capture or upload must not take
     process tracking down with it."""
     if not png:
         return " | no shot"
     slot_id = slot_resp.get("id") if isinstance(slot_resp, dict) else None
+    data, filename, image_type = encode_jpeg(png, quality)
     try:
-        status, resp = client.post_screenshot(png, started, slot_id)
+        status, resp = client.post_screenshot(data, started, slot_id,
+                                              filename, image_type)
     except Exception as exc:
         return f" | shot error: {str(exc)[:40]}"
     if status in (200, 201):
-        return f" | shot {len(png) // 1024}KB" + ("" if slot_id else " (unattached)")
+        kind = "jpg" if image_type == "image/jpeg" else "png"
+        return (f" | shot {len(data) // 1024}KB {kind}"
+                + ("" if slot_id else " (unattached)"))
     return f" | shot HTTP {status}: {str(resp)[:60]}"
 
 
@@ -1655,6 +1761,11 @@ def main():
                 every_n = max(1, int(round(float(shot_secs) / interval)))
                 shot_due = (cycle % every_n == 0)
             shot = capture_screenshot(cfg) if (want_shot and shot_due) else None
+            # Scale FIRST, so the blur below resamples a smaller image — blurring
+            # is itself a downscale-and-stretch, and doing it before scaling would
+            # resample twice for no benefit.
+            if shot:
+                shot = downscale_png(shot, setting(cfg, overrides, "screenshot_max_width", 0))
             # Blur before the image goes anywhere. If blurring fails the shot is
             # DROPPED, never uploaded sharp — an employee promised a blurred
             # screen must not have a readable one sent because a library threw.
@@ -1820,7 +1931,9 @@ def main():
                     elif shot is None and setting(cfg, overrides, "blur_screenshots", False):
                         shot_note = " | shot DROPPED (blur failed, not sent sharp)"
                     else:
-                        shot_note = _upload_screenshot(client, cfg, shot, started, resp)
+                        shot_note = _upload_screenshot(
+                            client, cfg, shot, started, resp,
+                            setting(cfg, overrides, "screenshot_jpeg_quality", 0))
                         if blurred:
                             shot_note += " blurred"
                 # Publish after the slot, so a failed summary never costs us the
