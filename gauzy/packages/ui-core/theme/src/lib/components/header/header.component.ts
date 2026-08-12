@@ -16,6 +16,7 @@ import {
 	ISelectedEmployee,
 	IUser,
 	PermissionsEnum,
+	RolesEnum,
 	TimeLogSourceEnum,
 	TimeLogType
 } from '@gauzy/contracts';
@@ -52,6 +53,22 @@ import { ALL_EMPLOYEES_SELECTED, NO_EMPLOYEE_SELECTED, QuickActionsComponent } f
 	standalone: false
 })
 export class HeaderComponent extends TranslationBaseComponent implements OnInit, OnDestroy, AfterViewInit {
+	/**
+	 * Who may see the Create button.
+	 *
+	 * Managers are deliberately excluded: the quick-actions menu behind it creates
+	 * organisation-level records, which is administration rather than supervision.
+	 * Role names rather than a permission because "Create" opens a menu of several
+	 * unrelated actions, so there is no single permission that describes it.
+	 */
+	private static readonly CREATE_ROLES: RolesEnum[] = [RolesEnum.SUPER_ADMIN, RolesEnum.ADMIN];
+
+	/**
+	 * Defaults to false, so a role that has not resolved yet — or fails to —
+	 * hides the button rather than offering actions the user cannot complete.
+	 */
+	public canCreate = false;
+
 	isEmployee = false;
 	isElectron: boolean = environment.IS_ELECTRON;
 	isDemo: boolean = environment.DEMO;
@@ -187,6 +204,7 @@ export class HeaderComponent extends TranslationBaseComponent implements OnInit,
 				tap((user: IUser) => (this.user = user)),
 				tap((user: IUser) => (this.employee = user?.employee)),
 				tap((user: IUser) => (this.isEmployee = !!user && !!user.employee?.id)),
+				tap((user: IUser) => (this.canCreate = HeaderComponent.CREATE_ROLES.includes(user?.role?.name as RolesEnum))),
 				untilDestroyed(this)
 			)
 			.subscribe(async () => {

@@ -10,7 +10,7 @@
        selectors, and the trail was being squeezed to nothing on pages that
        show every selector. -->
   <div class="header-container">
-    @if (createQuickActionsMenu?.length > 0) {
+    @if (canCreate && createQuickActionsMenu?.length > 0) {
       <nb-action
         size="small"
         [class.left]="position === 'normal'"
