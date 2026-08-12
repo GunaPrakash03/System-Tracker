@@ -16,6 +16,13 @@ import { IEmployee } from '@gauzy/contracts';
  * Nebular routes menu clicks by tag through one shared NbMenuService, so every
  * row sharing a tag would open together and a click would fire on all of them.
  * The id is unique per row by definition.
+ *
+ * Do NOT stop propagation on the button. It looks like the obvious way to keep
+ * a menu click from also selecting the table row, and it silently breaks the
+ * menu: NbClickTriggerStrategy listens on `document`, not on the host, so an
+ * event that never bubbles that far is an event Nebular never sees and the menu
+ * never opens. Suppressing the row's own reaction belongs in the table, which
+ * knows which column was clicked — see EmployeesComponent.
  */
 @UntilDestroy({ checkProperties: true })
 @Component({
