@@ -31,6 +31,7 @@ The Wayland path is also the fallback if an X query returns nothing.
 
 import ctypes
 import ctypes.util
+import email.utils
 import json
 import os
 import time
@@ -98,6 +99,15 @@ DEFAULT_CONFIG = {
     # which breaks once the org timezone differs from the machine. Set true only
     # if you deliberately want naive local timestamps regardless of the org tz.
     "use_local_time": False,
+    # Take the time from the server rather than the workstation clock. The
+    # server's `Date` header anchors a boottime-based clock, so a machine whose
+    # time is wrong — or has been changed — still records correct timestamps,
+    # and an outage does not disturb it. False falls back to the system clock.
+    "use_network_time": True,
+    # Log a warning when the system clock differs from the server's by more than
+    # this many seconds. The tracker records correctly either way; this is what
+    # makes a broken or tampered-with workstation clock visible instead of silent.
+    "clock_skew_warn_seconds": 30,
 
     # ----- Active vs idle time --------------------------------------------- #
     # The system counts as ACTIVE for a moment if EITHER the user gave input
@@ -294,11 +304,95 @@ def setting(cfg, overrides, key, default=None):
     return cfg.get(key, default)
 
 
+# --------------------------------------------------------------------------- #
+# Network clock
+#
+# The workstation clock cannot be relied on for a record that is meant to be
+# relied on. Anyone able to set the time on their own machine can shift their
+# hours, or erase a span of the day by winding back and letting the server
+# discard the resulting duplicate slots. Ordinary drift does the same thing
+# accidentally on a machine whose NTP is broken.
+#
+# So the server's clock is the reference. Every API response carries a `Date`
+# header, and the tracker is already making a request every interval, so this
+# costs nothing extra.
+#
+# Two details make it robust rather than merely clever:
+#
+#   * The anchor is (server time, CLOCK_BOOTTIME), not an offset against the
+#     wall clock. Boottime cannot be set, does not jump, and — unlike
+#     CLOCK_MONOTONIC — keeps counting across a suspend. So once anchored, the
+#     time we report is immune to anything done to the system clock afterwards.
+#
+#   * Losing the network does not lose the clock. Boottime keeps advancing, so
+#     the last anchor stays usable for as long as the machine stays up; the
+#     tracker keeps recording correct times through an outage and simply
+#     re-anchors on the first response when the network returns.
+#
+# Only if the tracker has never reached the server does it fall back to the
+# system clock, because at that point there is nothing else.
+# --------------------------------------------------------------------------- #
+
+_net_anchor = None          # (server_utc_naive, boottime_at_that_moment)
+_net_skew = None            # seconds the system clock is behind the server
+
+
+def _boottime():
+    """Seconds since boot, including time spent suspended."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def note_server_date(date_header):
+    """Re-anchor the clock from an HTTP `Date` header. Never raises.
+
+    Called on every response, including error responses — a 401 carries just as
+    honest a clock as a 200.
+    """
+    global _net_anchor, _net_skew
+    if not date_header:
+        return
+    try:
+        server = email.utils.parsedate_to_datetime(date_header)
+        if server is None:
+            return
+        if server.tzinfo is not None:
+            server = server.astimezone(timezone.utc).replace(tzinfo=None)
+        _net_anchor = (server, _boottime())
+        _net_skew = (datetime.now(timezone.utc).replace(tzinfo=None) - server).total_seconds()
+    except Exception:
+        return
+
+
+def clock_skew():
+    """How far the system clock is from the server's, in seconds, or None.
+
+    Positive means the machine is ahead. Reported rather than silently
+    corrected: a large value means the workstation clock is broken or has been
+    tampered with, and that is worth seeing.
+    """
+    return _net_skew
+
+
+def network_now():
+    """UTC now from the server's clock, or None if never anchored."""
+    if _net_anchor is None:
+        return None
+    server, at = _net_anchor
+    return server + timedelta(seconds=_boottime() - at)
+
+
 def now_ts(cfg):
-    """The timestamp the tracker records with. Default: the system's local
-    wall-clock time (naive), so the dashboard matches the machine's clock. With
-    use_local_time false, UTC instead. Returned naive either way — the value is
-    sent as-is, so the dashboard shows exactly this time, no re-offsetting."""
+    """The timestamp the tracker records with, naive, sent as-is.
+
+    Prefers the server's clock (see above). Falls back to the system clock only
+    when the server has never been reached, or when network time is switched
+    off — and to LOCAL system time in that case only if use_local_time is set,
+    which it should not be against an API that stores naive UTC.
+    """
+    if cfg.get("use_network_time", True):
+        net = network_now()
+        if net is not None:
+            return net
     if cfg.get("use_local_time", True):
         return datetime.now()                        # local wall clock
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1198,15 +1292,23 @@ class GauzyClient:
                 req.add_header("Tenant-Id", self.tenant_id)
         try:
             with urllib.request.urlopen(req, timeout=30, context=self._ctx) as resp:
+                # Re-anchor the clock on every response. This is the only place
+                # the tracker learns the server's time, and it happens on traffic
+                # it was sending anyway.
+                note_server_date(resp.headers.get("Date"))
                 raw = resp.read()
                 return resp.status, (json.loads(raw) if raw else {})
         except urllib.error.HTTPError as e:
+            # An error response carries just as honest a clock as a success one.
+            note_server_date(e.headers.get("Date") if e.headers else None)
             raw = e.read()
             try:
                 return e.code, json.loads(raw)
             except Exception:
                 return e.code, {"message": raw.decode("utf-8", "replace")[:200]}
         except urllib.error.URLError as e:
+            # No response, so no clock. The existing anchor stays valid — it
+            # advances on boottime, not on anything the network provides.
             return 0, {"message": str(e)}
 
     def login(self):
@@ -1619,6 +1721,18 @@ def main():
     client.login()
     log(cfg, f"OK. employee={client.employee_id[:8]} | interval {interval}s, "
              f"focus sample {fsample}s")
+    # Say which clock is in force, and complain if this machine's own is wrong.
+    # login() has already made a request, so the anchor exists by now.
+    _skew = clock_skew()
+    if cfg.get("use_network_time", True) and network_now() is not None:
+        log(cfg, f"clock: server time (system clock is {_skew:+.0f}s off)")
+        if _skew is not None and abs(_skew) > float(cfg.get("clock_skew_warn_seconds", 30)):
+            log(cfg, f"clock: WARNING this machine's clock is {_skew:+.0f}s from the "
+                     "server. Tracking is unaffected — timestamps come from the "
+                     "server — but the workstation clock needs fixing: "
+                     "sudo timedatectl set-ntp true")
+    else:
+        log(cfg, "clock: system time (server clock unavailable)")
     # State the per-employee settings in force, so the log says what this
     # employee is actually configured for rather than what the file says.
     _boot = fetch_employee_settings(cfg, client.employee_id, client)
