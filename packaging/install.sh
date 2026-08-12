@@ -93,8 +93,14 @@ RestartSec=5
 WantedBy=graphical-session.target
 EOF
 systemctl --user daemon-reload
-systemctl --user enable --now system-tracker.service 2>/dev/null \
-    && say "Service started." || warn "Start manually: systemctl --user enable --now system-tracker.service"
+# `enable --now` starts a stopped service but does NOTHING to a running one, so
+# re-running this script to upgrade an existing install would copy the new code
+# and leave the old code running — with a log that looks entirely healthy.
+# Enable for next login, then restart unconditionally: restart also starts a
+# service that is not running, so this covers a first install too.
+systemctl --user enable system-tracker.service 2>/dev/null || true
+systemctl --user restart system-tracker.service 2>/dev/null \
+    && say "Service started." || warn "Start manually: systemctl --user restart system-tracker.service"
 
 echo
 say "Done. Next:"
