@@ -410,21 +410,31 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 	 * overrides the accidental "code" hit.
 	 */
 	/**
-	 * The bucket a stored category counts towards. "Chrome Neutral" is Neutral;
+	 * Prefix marking a category as scoped to browser tabs.
+	 *
+	 * "Chrome " is the old spelling, still present in rules saved before the
+	 * label was corrected — the scope was never Chrome-specific, it covers any
+	 * browser tab. Both are accepted so old rules keep classifying; new ones are
+	 * written as "Browser ".
+	 */
+	private static readonly TAB_SCOPE = /^(?:Browser|Chrome) /;
+
+	/**
+	 * The bucket a stored category counts towards. "Browser Neutral" is Neutral;
 	 * the prefix scopes where the rule applies, it is not a category of its own.
 	 */
 	private bucketOf(value: string): string {
-		return (value || '').replace(/^Chrome /, '') || 'Neutral';
+		return (value || '').replace(ProductivityComponent.TAB_SCOPE, '') || 'Neutral';
 	}
 
 	public categorise(title: string): string {
 		const name = (title || '').toLowerCase();
 		if (!name) return 'Neutral';
-		// A "Chrome …" category is scoped to browser tabs — it must not classify a
-		// desktop process of the same name. `spotify → Chrome Unproductive` marks
+		// A "Browser …" category is scoped to browser tabs — it must not classify a
+		// desktop process of the same name. `spotify → Browser Unproductive` marks
 		// Spotify in a tab without touching the Spotify application.
 		const isTab = !this.processNames.has(name);
-		const applies = (value: string) => isTab || !value.startsWith('Chrome ');
+		const applies = (value: string) => isTab || !ProductivityComponent.TAB_SCOPE.test(value);
 		if (this.categories[name] && applies(this.categories[name])) {
 			return this.bucketOf(this.categories[name]);
 		}

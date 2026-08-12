@@ -67,15 +67,21 @@ export class TrackerSettingsComponent implements OnInit {
 	 * The three plain categories apply wherever the name matches — a process, or
 	 * a browser tab's title.
 	 *
-	 * The two "Chrome …" categories apply ONLY when the match is a browser tab.
-	 * That is the difference between the Spotify desktop application and Spotify
-	 * open in a tab: `spotify → Unproductive` covers both, `spotify → Chrome
-	 * Unproductive` covers only the tab and leaves the desktop app to whatever
-	 * else classifies it. They count towards Neutral and Unproductive in the
-	 * totals; the prefix scopes *where* the rule applies, it is not a fourth and
-	 * fifth category.
+	 * The two "Browser …" categories apply ONLY when the match is a browser tab —
+	 * any browser, not Chrome specifically; Firefox, Brave and Edge are reported
+	 * the same way. That is the difference between the Spotify desktop
+	 * application and Spotify open in a tab: `spotify → Unproductive` covers
+	 * both, `spotify → Browser Unproductive` covers only the tab and leaves the
+	 * desktop app to whatever else classifies it. They count towards Neutral and
+	 * Unproductive in the totals; the prefix scopes *where* the rule applies, it
+	 * is not a fourth and fifth category.
 	 */
-	public readonly categories = ['Productive', 'Neutral', 'Unproductive', 'Chrome Neutral', 'Chrome Unproductive'];
+	// "Browser …", not "Chrome …": the rule is scoped to anything matched as a
+	// browser tab, which is Firefox, Brave and Edge as much as Chrome. Rules
+	// saved earlier still read "Chrome …" and keep working — both consumers of
+	// this value accept either prefix — so no migration is needed and the two
+	// spellings can coexist indefinitely.
+	public readonly categories = ['Productive', 'Neutral', 'Unproductive', 'Browser Neutral', 'Browser Unproductive'];
 
 	/**
 	 * How long without keyboard or mouse before a moment counts as idle. The
