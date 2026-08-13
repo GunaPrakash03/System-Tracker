@@ -1131,7 +1131,7 @@ def _capture_via_extension(cfg):
 
 
 def blur_png(png, strength):
-    """PNG bytes blurred beyond legibility, or the original on any failure.
+    """PNG bytes blurred beyond legibility, or None if that could not be done.
 
     Monitoring versus privacy: an admin needs to see THAT someone is working and
     roughly on what, not to read their messages, credentials or a customer's
@@ -1144,9 +1144,18 @@ def blur_png(png, strength):
     more CPU each interval than the capture itself. Reducing to 1/strength and
     stretching back is irreversible — the detail is gone from the file, not
     merely hidden, so nothing can be recovered from the stored image.
+
+    EVERY failure returns None, never the input. This function is the whole of
+    the promise made to an employee who has been told their screen is blurred,
+    and the caller treats None as "do not upload" — so returning the original on
+    a failure would not degrade the feature, it would invert it, transmitting
+    exactly the readable screen the setting exists to prevent. Losing one
+    interval's image is the cheaper failure by a wide margin, and the log says
+    which happened. The GdkPixbuf calls below return None rather than raising
+    when they fail, so those paths need the same care as the except.
     """
     if not png:
-        return png
+        return None
     try:
         import gi
         gi.require_version("GdkPixbuf", "2.0")
@@ -1157,23 +1166,19 @@ def blur_png(png, strength):
         loader.close()
         pb = loader.get_pixbuf()
         if pb is None:
-            return png
+            return None
         w, h = pb.get_width(), pb.get_height()
         f = max(2, int(strength or 20))
         small = pb.scale_simple(max(1, w // f), max(1, h // f),
                                 GdkPixbuf.InterpType.BILINEAR)
         if small is None:
-            return png
+            return None
         big = small.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR)
         if big is None:
-            return png
+            return None
         ok, buf = big.save_to_bufferv("png", [], [])
-        return bytes(buf) if ok else png
+        return bytes(buf) if ok else None
     except Exception:
-        # Never fail the interval over a blur. But note the caller MUST treat a
-        # failure as "do not upload" rather than "upload the sharp original" —
-        # silently sending an unblurred screen would be the opposite of what the
-        # admin asked for.
         return None
 
 
