@@ -594,42 +594,68 @@ systemctl --user status system-tracker</pre>
           uploads.
         </p>
         <div class="note">
-          <h3>Committed, not yet deployed</h3>
+          <h3>Pushing the images is not deploying them</h3>
           <p>
-            Both fixes are on <code>main</code> as of <code>2af5442</code>. One changes
-            <code>packages/core</code> and the other the webapp image, so <strong>both</strong>
-            images must be rebuilt — the commands are in step 1. Until that happens new
-            screenshots keep being written with the wrong media type, and the objects repaired by
-            hand are only the ones written before the fix.
+            Both services were on <code>Builder: RAILPACK</code> with the repository connected, so
+            every <code>git push</code> triggered a Railway build from source. Railpack does not
+            use <code>.deploy/webapp/Dockerfile</code> — it autodetects a Node app, which never
+            listens on 4200, so the health check on <code>/</code> failed eleven times and the
+            deploy was marked FAILED. Three consecutive deploys failed that way and the dashboard
+            stayed down for about four hours, while the images built locally sat unused in the
+            registry. Pointing the service at the image is a separate act from pushing it.
           </p>
         </div>
-        <p>Then repoint the two services, <strong>webapp first</strong>:</p>
-        <div class="tablewrap">
-          <table>
-            <thead><tr><th>Order</th><th>Service</th><th>Image</th></tr></thead>
-            <tbody>
-              <tr><td>1</td><td><code>System-Tracker</code></td><td><code>ghcr.io/gunaprakash03/tracker-webapp:2af5442</code></td></tr>
-              <tr><td>2</td><td><code>api</code></td><td><code>ghcr.io/gunaprakash03/tracker-api:2af5442</code></td></tr>
-            </tbody>
-          </table>
-        </div>
+        <p>
+          What was actually run, once both images were pushed. The service source must be set to
+          the image, which is what takes it off the repository builder:
+        </p>
+        <p>
+          Setting the source image has no <code>railway</code> CLI equivalent — it is
+          <em>Settings → Source</em> in the dashboard, or the platform API. That is the step that
+          replaces the repository connection; the redeploy below only restarts the service with
+          whatever source it already has.
+        </p>
+        <pre class="term"><span class="dim"># 1. webapp FIRST — it carries the resolver fix that makes step 2 safe</span>
+<span class="dim">#    Settings -> Source -> ghcr.io/gunaprakash03/tracker-webapp:39f50b2</span>
+railway redeploy --service System-Tracker --environment production --yes
+
+<span class="dim">#    verify the fix is live in the container that came up</span>
+railway ssh --service System-Tracker -- \
+  grep -nE "resolver|api_upstream" /etc/nginx/nginx.conf
+<span class="dim">#    -> resolver [fd12::10] valid=10s;</span>
+<span class="dim">#    -> set $api_upstream "api.railway.internal:3000";</span>
+
+<span class="dim"># 2. api — only now, and only after / and /api/health both return 200</span>
+<span class="dim">#    Settings -> Source -> ghcr.io/gunaprakash03/tracker-api:aa8885f</span>
+railway redeploy --service api --environment production --yes</pre>
         <div class="note">
-          <h3>The order is the whole point</h3>
+          <h3>The order paid for itself immediately</h3>
           <p>
-            Deploying <code>api</code> first repeats the outage: it moves the API's address while
-            the old nginx is still caching the previous one. With the resolver already live, that
-            same address change is picked up within <code>valid=10s</code> and costs nothing.
-            Confirm the health check answers through the public URL after step 1, before starting
-            step 2.
+            Redeploying the API moved its private address exactly as before. This time the webapp
+            was already resolving per request, so the public URL showed a single ~20&nbsp;second
+            gap on <code>/api/health</code> — the container restart itself — and recovered with no
+            intervention. The morning's identical event cost twenty minutes and a manual webapp
+            redeploy. The dashboard at <code>/</code> never dropped below 200 throughout.
           </p>
         </div>
-        <pre class="term"><span class="dim"># after each step</span>
+        <p>Both fixes were confirmed live rather than assumed:</p>
+        <pre class="term"><span class="dim"># the site, through the API redeploy</span>
 curl -s -o /dev/null -w "%{http_code}\n" \
   https://system-tracker-production.up.railway.app/api/health
 
-<span class="dim"># once the API is on the new image, a fresh capture should report image/jpeg</span>
+<span class="dim"># and a capture written AFTER the API came up on the new image</span>
 aws s3api head-object --bucket system-moniter \
-  --key <span class="v">&lt;newest-key&gt;</span> --query ContentType --output text</pre>
+  --key <span class="v">&lt;newest-key&gt;</span> --query ContentType --output text
+<span class="dim">-> image/jpeg</span></pre>
+        <p>
+          Screenshots taken after the deploy report <code>image/jpeg</code> and open in the browser
+          instead of downloading. The tags differ by one commit — <code>39f50b2</code> for the
+          webapp, <code>aa8885f</code> for the API — because HEAD moved between the two builds.
+          Of the twenty commits separating the API's previous image from
+          <code>aa8885f</code>, exactly one touches API code, so the jump is the Content-Type fix
+          and nothing else. The shorter presigned-URL expiry in <code>39f50b2</code> is API-side
+          and is therefore still waiting on the next API build.
+        </p>
       </div>
     </section>
 
