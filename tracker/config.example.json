@@ -84,5 +84,10 @@
   "use_local_time": false,
   "use_network_time": true,
   "clock_skew_warn_seconds": 30,
+  "spool_offline_slots": true,
+  "spool_path": null,
+  "spool_max_slots": 2880,
+  "spool_max_age_hours": 72,
+  "spool_flush_per_cycle": 30,
   "verbose": true
 }

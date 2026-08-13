@@ -49,6 +49,8 @@ GAUZY_URL=http://localhost:3000 GAUZY_EMAIL=you@co GAUZY_PASSWORD=... \
 | `screenshot_timeout_seconds` | Give up if capture does not answer (default 20) |
 | `maintain_timer` | Keep a tracking timer running so slots appear in the dashboard. **Default `true`** — see *Dashboard visibility* |
 | `timer_source` | Timer/TimeLog source label (default `DESKTOP`) |
+| `use_network_time` | Take timestamps from the server, not this machine. **Default `true`** — see *Time* |
+| `spool_offline_slots` | Hold slots that could not be posted and send them when the network returns. **Default `true`** — see *Offline slots* |
 
 ## Continuous tracking — the timer (starts at login, cannot be stopped)
 
@@ -76,13 +78,86 @@ Verified end-to-end: with the timer off, freshly posted slots and screenshots do
 **not** appear in `GET /timesheet/time-slot` (the exact call the Screenshots
 gallery makes); with it on, they appear immediately.
 
-## Time — the system's local clock
+## Time — the server's clock, not the workstation's
 
-By default the tracker records with the **system's local wall-clock time**
-(`use_local_time: true`), so the dashboard shows the same time as the machine's
-clock. A slot taken at 11:50 on the machine reads 11:50 in Gauzy — not a UTC
-offset. Set `use_local_time: false` to record in UTC instead (then the org's
-timezone setting governs how it is displayed).
+The workstation clock is the one thing in this record that its own subject can
+set. Winding it back makes the tracker re-post slots the server already holds,
+which are discarded as duplicates — the span simply vanishes — and winding it
+forward leaves a hole. A machine with broken NTP does the same by accident.
+
+So by default (`use_network_time: true`) the timestamp comes from **the server**.
+Every API response carries a `Date` header and the tracker makes a request every
+interval, so this costs nothing extra. That header anchors a clock kept against
+`CLOCK_BOOTTIME`, which cannot be set, does not jump, and keeps counting across
+suspend — so once anchored, the recorded time is immune to anything done to the
+system clock afterwards, and a laptop that sleeps does not wake up reporting the
+moment it went down.
+
+Losing the network does not lose the clock: boottime keeps advancing, the last
+anchor stays good for as long as the machine is up, and the first response after
+an outage re-anchors. Only a tracker that has *never* reached the server falls
+back to the system clock.
+
+The skew is logged, not silently corrected — a machine tens of seconds out is
+broken or being adjusted, and that should be visible:
+
+```
+clock: server time (system clock is +0s off)
+clock: WARNING this machine's clock is +47s from the server. Tracking is
+unaffected — timestamps come from the server — but the workstation clock needs
+fixing: sudo timedatectl set-ntp true
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `use_network_time` | `true` | Take the time from the server's `Date` header. `false` falls back to the system clock |
+| `clock_skew_warn_seconds` | `30` | Warn when this machine's clock differs from the server's by more than this |
+| `use_local_time` | `false` | Only consulted when network time is off. `false` records UTC (correct — the org timezone governs display); `true` records naive local time |
+
+Note this is an **accuracy** measure, not an anti-tamper one. It fixes drift and
+casual clock-changing; it does not defend against someone editing the tracker
+itself, which runs under their own user account.
+
+## Offline slots — the spool
+
+A slot that gets no response at all (the network is down, not the server
+refusing) is written to disk and sent when the connection returns, instead of
+being dropped. Without this a VPN drop or a walk between offices put a silent
+hole in the record — the same damage a wound-back clock does, arriving by a
+different route and with nothing in the dashboard to say so.
+
+This works because of the clock above: the queued slot already carries the
+**server's** timestamp, so a slot posted an hour late still lands at the minute
+it actually happened. Re-sending is safe too — the server discards a slot it
+already holds as a duplicate — so the spool needs no acknowledgements and can
+simply retry.
+
+The backlog drains after the first slot that posts successfully, which is the
+only proof the tracker has that the network is back, and a bite at a time so
+catching up never starves the live interval. The log says what is happening:
+
+```
+offline: slot spooled (7 queued) — <urlopen error [Errno 111] Connection refused>
+ACTIVE 82% (49/60s) | 12 apps, on-screen: code | 2 tabs | spool +7 sent, 0 queued
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `spool_offline_slots` | `true` | Hold unpostable slots. `false` restores the old drop-on-failure behaviour |
+| `spool_path` | `null` | Spool file. Null = `$XDG_STATE_HOME/system-tracker/spool.jsonl` (i.e. `~/.local/state/…`) — user state, so it survives a reinstall |
+| `spool_max_slots` | `2880` | Count ceiling — 48h at the default 60s interval |
+| `spool_max_age_hours` | `72` | Age ceiling. Whichever ceiling bites first wins; dropped slots are logged, never silently discarded |
+| `spool_flush_per_cycle` | `30` | Queued slots sent per interval once the network is back |
+
+Stored as JSON lines and rewritten via an atomic rename, so a process killed
+mid-write loses at most the one slot it was appending — a torn line is skipped
+on the next read rather than stranding everything queued behind it.
+
+**Screenshots are not spooled.** An image is attached to a slot by ID, and a
+queued slot has no ID until it is finally accepted. An offline interval
+therefore keeps its time record and loses its screenshot, which is the right way
+round — and matches the tracker's general rule that tracking outranks the
+extras built on top of it.
 
 ## Active vs idle time
 

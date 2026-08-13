@@ -109,6 +109,22 @@ DEFAULT_CONFIG = {
     # makes a broken or tampered-with workstation clock visible instead of silent.
     "clock_skew_warn_seconds": 30,
 
+    # ----- Offline spool ---------------------------------------------------- #
+    # Hold slots that could not be posted and send them when the network is
+    # back, instead of losing them. Off means a failed post is dropped.
+    "spool_offline_slots": True,
+    # Where the spool lives. Null puts it under $XDG_STATE_HOME (or
+    # ~/.local/state) — user state, not config, and it must survive a reinstall.
+    "spool_path": None,
+    # Ceilings on the spool, whichever bites first. 2880 slots is 48h at the
+    # default 60s interval; a slot is a few KB, so that is a few MB at worst.
+    "spool_max_slots": 2880,
+    "spool_max_age_hours": 72,
+    # How many spooled slots to send per interval once the network returns. The
+    # tracker still has an interval's work to do, so the backlog is drained a
+    # bite at a time rather than in one burst that would stall the cycle.
+    "spool_flush_per_cycle": 30,
+
     # ----- Active vs idle time --------------------------------------------- #
     # The system counts as ACTIVE for a moment if EITHER the user gave input
     # recently (keyboard/mouse) OR audio/video is playing. If neither is true
@@ -396,6 +412,190 @@ def now_ts(cfg):
     if cfg.get("use_local_time", True):
         return datetime.now()                        # local wall clock
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# --------------------------------------------------------------------------- #
+# Offline spool
+#
+# A slot that cannot be posted used to be dropped, which put a silent hole in
+# the record — the same damage a wound-back clock does, arriving by a different
+# route. A laptop carried between offices, a VPN drop, an API restart: each one
+# quietly erased the minutes it covered, and nothing in the dashboard said so.
+#
+# So an unpostable slot is written to disk and sent when the network returns.
+# Two properties of what came before make this work:
+#
+#   * The timestamp is already the SERVER's (see above), so a slot posted an
+#     hour late still lands at the minute it happened. Spooling against a
+#     workstation clock would have been far less useful — the delay and the
+#     clock error would be indistinguishable.
+#
+#   * Re-sending is safe. The server discards a slot it already holds as a
+#     duplicate, so delivery only has to be at-least-once. That is why the
+#     spool needs no acknowledgements and can simply retry: the cost of sending
+#     one slot twice is nothing, and the cost of losing one is a hole.
+#
+# JSON lines, appended, because the failure being designed for is the process
+# dying mid-write: a torn final line loses one slot, where a re-serialised JSON
+# array would lose the file. Unreadable lines are skipped for the same reason.
+#
+# Screenshots are deliberately NOT spooled. An image is attached to a slot by
+# ID, and a spooled slot has no ID until it is finally accepted, so buffering
+# the bytes would mean re-associating them afterwards — for megabytes of disk
+# per offline hour. An offline interval therefore keeps its time record and
+# loses its screenshot, which is the right way round.
+# --------------------------------------------------------------------------- #
+
+
+def spool_path(cfg):
+    """Absolute path of the spool file, or None if it cannot be created.
+
+    Defaults under XDG_STATE_HOME rather than beside the script: this is state
+    the machine accumulates, not configuration, and `packaging/install.sh`
+    rewrites the install directory on every upgrade."""
+    configured = cfg.get("spool_path")
+    if configured:
+        path = os.path.expanduser(configured)
+    else:
+        base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+        path = os.path.join(base, "system-tracker", "spool.jsonl")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception:
+        return None
+    return path
+
+
+def _spool_read(path):
+    """Every intact record in the spool, oldest first. Never raises.
+
+    A line that will not parse is dropped rather than aborting the read — one
+    torn write at the tail must not strand every good slot behind it."""
+    rows = []
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    return rows
+
+
+def _spool_write(cfg, path, rows):
+    """Replace the spool with `rows`. Written to a temp file and renamed, so an
+    interrupted rewrite leaves the previous spool intact rather than a half
+    one — rename is atomic within a filesystem, a truncate-and-write is not."""
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        log(cfg, f"spool: could not write {path}: {e}")
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+        return False
+
+
+def _spool_prune(cfg, rows):
+    """Drop records past the age or count ceiling, oldest first.
+
+    Returns (kept, dropped). Both ceilings exist because they fail differently:
+    age bounds a machine offline for a week, count bounds a short interval
+    filling the disk faster than age would ever catch."""
+    max_age = float(cfg.get("spool_max_age_hours", 72) or 0)
+    max_rows = int(cfg.get("spool_max_slots", 2880) or 0)
+    dropped = 0
+    if max_age > 0:
+        # Aged against the spooling machine's own boottime clock, not against a
+        # timestamp in the record: the record carries server time, and the whole
+        # reason the slot is spooled is that the server is unreachable.
+        cutoff = _boottime() - max_age * 3600
+        fresh = [r for r in rows if r.get("_bt", 0) >= cutoff]
+        dropped += len(rows) - len(fresh)
+        rows = fresh
+    if max_rows > 0 and len(rows) > max_rows:
+        dropped += len(rows) - max_rows
+        rows = rows[-max_rows:]          # keep the newest
+    return rows, dropped
+
+
+def spool_add(cfg, payload):
+    """Queue one unpostable slot. Never raises — a spool failure must not take
+    the tracker down with it, since the live interval still has to be served."""
+    if not cfg.get("spool_offline_slots", True):
+        return False
+    path = spool_path(cfg)
+    if not path:
+        return False
+    rows = _spool_read(path)
+    rows.append({"_bt": _boottime(), "payload": payload})
+    rows, dropped = _spool_prune(cfg, rows)
+    if dropped:
+        # Said out loud. A silently truncated spool reads afterwards as a clean
+        # record with a gap in it, which is exactly the thing being fixed.
+        log(cfg, f"spool: dropped {dropped} slot(s) at the spool ceiling "
+                 f"({cfg.get('spool_max_slots')} slots / "
+                 f"{cfg.get('spool_max_age_hours')}h) — those minutes are lost")
+    if not _spool_write(cfg, path, rows):
+        return False
+    return True
+
+
+def spool_depth(cfg):
+    """How many slots are waiting. Cheap enough to call once a cycle."""
+    path = spool_path(cfg)
+    return len(_spool_read(path)) if path else 0
+
+
+def spool_flush(cfg, client):
+    """Post what is queued, oldest first. Returns (sent, remaining).
+
+    Stops at the first slot that does not go through, and keeps the rest for
+    the next cycle: if the network is still down, the second attempt will fail
+    the same way, and draining in order keeps the record's own sequence. A slot
+    the server rejects OUTRIGHT (a 4xx that is not auth) is discarded instead —
+    it will be rejected identically forever, and keeping it would block every
+    good slot queued behind it."""
+    if not cfg.get("spool_offline_slots", True):
+        return 0, 0
+    path = spool_path(cfg)
+    if not path:
+        return 0, 0
+    rows = _spool_read(path)
+    if not rows:
+        return 0, 0
+    limit = max(1, int(cfg.get("spool_flush_per_cycle", 30)))
+    sent = rejected = 0
+    while rows and sent + rejected < limit:
+        status, resp = client.post_slot_payload(rows[0].get("payload") or {})
+        if status in (200, 201):
+            rows.pop(0)
+            sent += 1
+        elif status in (400, 403, 404, 422):
+            log(cfg, f"spool: server rejected a queued slot (HTTP {status}), "
+                     f"discarding it: {str(resp)[:120]}")
+            rows.pop(0)
+            rejected += 1
+        else:
+            # 0 (still offline), 401 (token expired — the caller re-logs in and
+            # the next cycle retries), 5xx (server unwell). All are worth
+            # another attempt later, so the queue is left alone.
+            break
+    _spool_write(cfg, path, rows)
+    return sent, len(rows)
 
 
 def tokens(s):
@@ -1565,10 +1765,13 @@ class GauzyClient:
         # running log if there is one, so this cannot double-start.
         return self.start_timer()
 
-    def post_time_slot(self, proc_rows, tabs, started_at, duration,
-                        active_seconds, audio_seconds):
-        """tabs: {title -> seconds_watched}. active_seconds: how long this slot
-        was active (input or audio); audio_seconds: how long audio played."""
+    def time_slot_payload(self, proc_rows, tabs, started_at, duration,
+                          active_seconds, audio_seconds):
+        """Build the time-slot body without sending it.
+
+        Split out from post_time_slot so the offline spool can store exactly
+        what would have been sent — a re-serialised approximation would drift
+        from the live payload the first time either was edited."""
         date = started_at.strftime("%Y-%m-%d")
         tm = started_at.strftime("%H:%M:%S")
         recorded = started_at.isoformat()
@@ -1607,7 +1810,29 @@ class GauzyClient:
             "overall": overall,
             "startedAt": recorded, "recordedAt": recorded, "activities": acts,
         }
+        return payload
+
+    def post_slot_payload(self, payload):
+        """POST one prebuilt time-slot body. Used for both the live slot and
+        anything replayed from the spool, so the two cannot diverge."""
         return self._request("POST", "/api/timesheet/time-slot", payload)
+
+    def post_time_slot(self, proc_rows, tabs, started_at, duration,
+                        active_seconds, audio_seconds):
+        """tabs: {title -> seconds_watched}. active_seconds: how long this slot
+        was active (input or audio); audio_seconds: how long audio played.
+
+        A slot that gets no response at all (status 0 — the network is down) is
+        spooled rather than dropped, and goes out when the network returns. Any
+        other status is a real answer from the server and is returned to the
+        caller to handle."""
+        payload = self.time_slot_payload(proc_rows, tabs, started_at, duration,
+                                         active_seconds, audio_seconds)
+        status, resp = self.post_slot_payload(payload)
+        if status == 0 and spool_add(self.cfg, payload):
+            resp = dict(resp or {})
+            resp["spooled"] = True
+        return status, resp
 
     def post_screenshot(self, data, recorded_at, time_slot_id=None,
                         filename="screenshot.png", image_type="image/png"):
@@ -1733,6 +1958,15 @@ def main():
                      "sudo timedatectl set-ntp true")
     else:
         log(cfg, "clock: system time (server clock unavailable)")
+    # Anything left over from a previous run goes out now, before the first live
+    # slot. A restart is the common way an outage ends — the machine comes back
+    # up on a working network — so this is usually where the backlog drains.
+    if cfg.get("spool_offline_slots", True):
+        _queued = spool_depth(cfg)
+        if _queued:
+            _sent, _left = spool_flush(cfg, client)
+            log(cfg, f"spool: {_queued} slot(s) held from a previous run; "
+                     f"sent {_sent}, {_left} still queued")
     # State the per-employee settings in force, so the log says what this
     # employee is actually configured for rather than what the file says.
     _boot = fetch_employee_settings(cfg, client.employee_id, client)
@@ -1924,6 +2158,10 @@ def main():
                                                      active_seconds, audio_seconds)
                 if status in (200, 201):
                     log(cfg, f"posted slot ({int(active_seconds)}/{interval}s active), report deferred")
+                elif status == 0:
+                    log(cfg, "offline: slot spooled, report deferred"
+                        if isinstance(resp, dict) and resp.get("spooled")
+                        else "offline: slot LOST (spool unavailable), report deferred")
                 prev_active = active_seconds > 0
                 continue
             day_apps = usage.setdefault("apps", {})
@@ -2059,14 +2297,35 @@ def main():
                 # reality by a few minutes — the right trade for a daily total.
                 if cycle % 5 == 0:
                     client.publish_usage(today, usage)
+                # This slot went through, which is the only proof the tracker
+                # has that the network is back — so the backlog is drained here
+                # rather than on a timer that would keep retrying into a dead
+                # connection. A bite per cycle, so catching up never starves the
+                # live interval.
+                spool_note = ""
+                if cfg.get("spool_offline_slots", True):
+                    _sent, _left = spool_flush(cfg, client)
+                    if _sent or _left:
+                        spool_note = f" | spool +{_sent} sent, {_left} queued"
                 log(cfg, f"{state} {pct}% ({active_seconds}/{interval}s){extra} | "
                          f"{len(rows)} apps, on-screen: {watching} | "
-                         f"{len(tabs)} tabs{wins}{shot_note}")
+                         f"{len(tabs)} tabs{wins}{shot_note}{spool_note}")
             elif status == 401:
                 log(cfg, "token expired, re-login")
                 client.login()
                 if cfg.get("maintain_timer", True):
                     client.start_timer()   # the new session needs its timer too
+            elif status == 0:
+                # No response at all — the network, not the server. The slot is
+                # already spooled by post_time_slot; this only says so, because
+                # an outage that leaves no trace in the log is indistinguishable
+                # afterwards from an employee who was not working.
+                if isinstance(resp, dict) and resp.get("spooled"):
+                    log(cfg, f"offline: slot spooled ({spool_depth(cfg)} queued) — "
+                             f"{str(resp.get('message', ''))[:80]}")
+                else:
+                    log(cfg, f"offline: slot LOST, spool unavailable — "
+                             f"{str(resp)[:120]}")
             else:
                 log(cfg, f"push failed HTTP {status}: {str(resp)[:150]}")
     except KeyboardInterrupt:
