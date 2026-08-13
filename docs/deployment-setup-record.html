@@ -566,8 +566,13 @@ systemctl --user status system-tracker</pre>
             Both fixes sit on <code>fix/s3-content-type-and-nginx-resolver</code> and change
             <code>packages/core</code> and the webapp image, so they need a rebuild of both images
             to take effect. Until then new screenshots keep being written with the wrong media
-            type. Redeploy <code>api</code> first, then <code>System-Tracker</code>, so the
-            resolver change is in place for the address change the API redeploy causes.
+            type.
+          </p>
+          <p>
+            Deploy <strong>the webapp first</strong>. Doing it the other way round repeats the
+            outage: redeploying <code>api</code> moves its address while the old nginx is still
+            caching the previous one. With the resolver already live, the same address change is
+            picked up within <code>valid=10s</code> and costs nothing.
           </p>
         </div>
       </div>
