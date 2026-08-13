@@ -197,8 +197,9 @@
     <p class="eyebrow">System-Tracker · setup record</p>
     <h1>How the deployment was set up</h1>
     <p class="standfirst">
-      The configuration actually applied on 12 August 2026 — one public URL on Railway, the
-      screenshot store, and two Ubuntu workstations reporting into it.
+      The configuration actually applied on 12–13 August 2026 — one public URL on Railway, two
+      Ubuntu workstations reporting into it, and the screenshot store moved off the volume and
+      onto S3.
     </p>
   </header>
 
@@ -216,9 +217,10 @@
                                      │ no domain │   │            │
                                      │  :3000    │   └────────────┘
                                      └───────────┘
-                                           │
+                                           │  presigned, 1 h
                                      ┌───────────────┐
-                                     │  api-volume   │  screenshots
+                                     │  <span class="hi">Amazon S3</span>    │  screenshots
+                                     │ system-moniter│  (was api-volume)
                                      └───────────────┘</pre>
   </div>
 
@@ -283,7 +285,7 @@ docker push ghcr.io/gunaprakash03/tracker-webapp:<span class="v">&lt;short-sha&g
               <tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Timestamps are naive; the process timezone decides how they read</td></tr>
               <tr><td><code>DB_SYNCHRONIZE</code></td><td><code>false</code></td><td>Never schema-sync against a restored database</td></tr>
               <tr><td><code>IS_DOCKER</code></td><td><code>true</code></td><td>Selects the asset path the volume is mounted at</td></tr>
-              <tr><td><code>FILE_PROVIDER</code></td><td><code>LOCAL</code></td><td>Screenshots to the volume</td></tr>
+              <tr><td><code>FILE_PROVIDER</code></td><td><code>LOCAL</code></td><td>Screenshots to the volume — changed to <code>S3</code> on 13 August, step 7</td></tr>
               <tr><td><code>API_BASE_URL</code><br><code>CLIENT_BASE_URL</code><br><code>ALLOWED_ORIGINS</code></td><td>the one public URL</td><td>Same origin throughout</td></tr>
               <tr><td>JWT and session secrets</td><td>carried over unchanged</td><td>Keeps existing tokens and the restored database valid</td></tr>
             </tbody>
@@ -433,11 +435,150 @@ systemctl --user status system-tracker</pre>
       </div>
     </section>
 
+    <!-- 7 -->
+    <section class="step">
+      <div class="marker">7</div>
+      <h2>Moved the screenshot store to S3</h2>
+      <div class="step-body">
+        <p>
+          13 August. Not a migration — a configuration change. <code>screenshot.entity.ts</code>
+          has always stored a storage <em>key</em> and computed <code>fullUrl</code> virtually on
+          read, so there was no column of stale links to rewrite and no schema change of any kind.
+          The tracker was untouched too: it posts bytes and the server decides where they go.
+        </p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td><code>FILE_PROVIDER</code></td><td><code>S3</code> — replacing <code>LOCAL</code></td></tr>
+              <tr><td><code>AWS_S3_BUCKET</code></td><td><code>system-moniter</code></td></tr>
+              <tr><td><code>AWS_REGION</code></td><td><code>us-east-1</code></td></tr>
+              <tr><td><code>AWS_ACCESS_KEY_ID</code><br><code>AWS_SECRET_ACCESS_KEY</code></td><td>a dedicated IAM user, scoped to this bucket</td></tr>
+              <tr><td><code>AWS_S3_FORCE_PATH_STYLE</code></td><td><code>false</code> — virtual-hosted URLs, the AWS default</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <h3>The variables belong to <code>api</code>, not to the webapp</h3>
+          <p>
+            They were first set on <code>System-Tracker</code>, which runs nginx and never touches
+            S3, so they sat there inert while screenshots carried on landing on the volume. The
+            service that receives <code>POST /api/timesheet/screenshot</code> and writes the files
+            is <code>api</code>. Nothing reports this as an error; the only symptom is that
+            nothing changes.
+          </p>
+        </div>
+        <div class="note">
+          <h3>The tenant setting overrides the variable, silently</h3>
+          <p>
+            <code>setProvider()</code> in <code>file-storage.ts</code> reads
+            <code>tenantSettings.fileStorageProvider</code> <em>first</em> and only falls back to
+            <code>FILE_PROVIDER</code> when that is empty or invalid. The tenant was pinned to
+            <code>LOCAL</code>, so all six variables would have been ignored with nothing in the
+            log to say so. It was flipped to <code>S3</code> in the database — the dashboard's
+            <em>Settings → File Storage</em> writes the same row.
+          </p>
+          <p>
+            The per-tenant AWS credential fields on that page are deliberately left blank: they
+            only override when non-empty, so blank keeps the Railway variables authoritative.
+            Credentials in the database are harder to rotate and end up in backups.
+          </p>
+        </div>
+        <p>
+          The bucket stays private. <code>url()</code> returns a presigned link with
+          <code>expiresIn: 3600</code>, regenerated on every read — presigning is what serves the
+          images, and a public bucket would expose every employee's screen to anyone who guessed a
+          key. Note also that the <code>S3</code> provider builds its client with no
+          <code>endpoint</code>, so it reaches Amazon and nothing else; R2, MinIO and Railway's own
+          object storage would need the <code>WASABI</code> or <code>DIGITALOCEAN</code> provider.
+        </p>
+        <p>
+          The 2390 rows written before the switch still say <code>LOCAL</code> —
+          <code>storageProvider</code> is stored per row, so changing the provider moves nothing
+          retroactively. They resolve against the volume and will break the moment it is detached.
+          Deleting them, and the 1.1&nbsp;GB they point at, is still outstanding.
+        </p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="step">
+      <div class="marker">8</div>
+      <h2>Two defects the move surfaced</h2>
+      <div class="step-body">
+        <p>
+          Both were latent long before 13 August. Switching provider is simply what gave them
+          something to break.
+        </p>
+        <h3>A redeployed API left the proxy pointing at a dead address</h3>
+        <p>
+          Setting the variables redeployed <code>api</code>, and Railway hands a service a new
+          private IPv6 address each time it deploys. nginx resolves the hostname in an
+          <code>upstream</code> block <em>once</em>, at startup, and keeps that address for the
+          life of the worker — so the webapp spent twenty minutes proxying to an address that no
+          longer answered.
+        </p>
+        <div class="note">
+          <h3>It does not look like an outage</h3>
+          <p>
+            Static files keep serving from disk, so the dashboard loads normally and only the data
+            is missing — indistinguishable at a glance from a broken API. The API was in fact
+            healthy throughout and answering <code>/api/health</code> from inside the private
+            network. Trackers, meanwhile, crash-looped on login timeouts. Redeploying the webapp
+            cleared it by forcing a fresh resolve.
+          </p>
+        </div>
+        <p>
+          Fixed at the source: the <code>upstream</code> block is gone and
+          <code>proxy_pass</code> now names the target through a variable, which forces nginx to
+          resolve per request. That needs an explicit <code>resolver</code>, which nginx will not
+          take from <code>/etc/resolv.conf</code> itself, so
+          <code>entrypoint.compose.sh</code> reads the first nameserver out of that file and
+          substitutes it in — bracketed when it is IPv6, as Railway's <code>fd12::10</code> is.
+        </p>
+
+        <h3>Screenshots downloaded instead of opening</h3>
+        <p>
+          Both S3 upload paths stored a media type no browser can render. The multer engine set
+          none, so <code>multer-s3</code> fell back to <code>application/octet-stream</code>;
+          <code>putFile</code> hardcoded the literal string <code>image</code>, which is not a
+          media type at all — it has no subtype. Its <code>Content-Disposition</code> was
+          malformed too, omitting the <code>filename=</code> parameter.
+        </p>
+        <div class="note">
+          <h3>Why <code>LOCAL</code> never showed this</h3>
+          <p>
+            Serving from the volume, the API derived the header from the file extension on every
+            read. S3 stores what it is given at upload time and serves it back verbatim, so the
+            bug had nothing to break until the provider changed. The dashboard looked correct
+            throughout, because <code>&lt;img&gt;</code> sniffs the bytes and renders regardless —
+            only a top-level navigation trusts the header.
+          </p>
+        </div>
+        <p>
+          Objects already in the bucket were repaired in place with
+          <code>aws s3 cp --metadata-directive REPLACE</code>; a code fix only reaches new
+          uploads.
+        </p>
+        <div class="note">
+          <h3>Committed, not yet deployed</h3>
+          <p>
+            Both fixes sit on <code>fix/s3-content-type-and-nginx-resolver</code> and change
+            <code>packages/core</code> and the webapp image, so they need a rebuild of both images
+            to take effect. Until then new screenshots keep being written with the wrong media
+            type. Redeploy <code>api</code> first, then <code>System-Tracker</code>, so the
+            resolver change is in place for the address change the API redeploy causes.
+          </p>
+        </div>
+      </div>
+    </section>
+
   </div>
 
   <footer>
     <span>Dashboard, API and trackers all answer on one origin: system-tracker-production.up.railway.app</span>
     <span>Neither the API nor Postgres is reachable from outside; the API has no domain and Postgres has no TCP proxy.</span>
+    <span>Screenshots live in a private S3 bucket and are served only through presigned URLs that expire after an hour.</span>
   </footer>
 
 </div>
