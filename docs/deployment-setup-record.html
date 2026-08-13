@@ -236,20 +236,53 @@
           image had never been pushed at all; its registry repository did not exist.
         </p>
         <pre class="term">cd ~/System-Tracker/gauzy
+SHA=$(git rev-parse --short HEAD)          <span class="dim"># the tag, for both images</span>
+docker login ghcr.io                        <span class="dim"># once; the token needs write:packages</span>
 
+<span class="dim"># webapp — the Angular bundle and the nginx config</span>
 docker buildx build -f .deploy/webapp/Dockerfile \
   --build-arg NODE_ENV=production \
   --build-arg NODE_OPTIONS=--max-old-space-size=7168 \
-  --build-arg GAUZY_APP_COMMIT=<span class="v">&lt;short-sha&gt;</span> \
-  -t ghcr.io/gunaprakash03/tracker-webapp:<span class="v">&lt;short-sha&gt;</span> --load .
+  --build-arg GAUZY_APP_COMMIT=<span class="v">$SHA</span> \
+  -t ghcr.io/gunaprakash03/tracker-webapp:<span class="v">$SHA</span> --load .
 
-docker push ghcr.io/gunaprakash03/tracker-webapp:<span class="v">&lt;short-sha&gt;</span></pre>
+docker push ghcr.io/gunaprakash03/tracker-webapp:<span class="v">$SHA</span>
+
+<span class="dim"># api — packages/core, packages/contracts, the NestJS server</span>
+docker buildx build -f .deploy/api/Dockerfile \
+  --build-arg NODE_ENV=production \
+  --build-arg NODE_OPTIONS=--max-old-space-size=7168 \
+  --build-arg GAUZY_APP_COMMIT=<span class="v">$SHA</span> \
+  -t ghcr.io/gunaprakash03/tracker-api:<span class="v">$SHA</span> --load .
+
+docker push ghcr.io/gunaprakash03/tracker-api:<span class="v">$SHA</span></pre>
         <div class="note">
           <h3>Tag with the commit, never latest</h3>
           <p>
             Railway caches by digest, so a moved <code>latest</code> silently redeploys the previous
             build. The heap is set to 7&nbsp;GB here rather than the runbook's 12&nbsp;GB because
             this machine had 8&nbsp;GB free.
+          </p>
+        </div>
+        <div class="note">
+          <h3>Check disk and memory first — both fail late</h3>
+          <p>
+            The Angular build asks for a 7&nbsp;GB heap and the API image lands at roughly
+            3.4&nbsp;GB, so a box that is short of either will spend a long time before failing.
+            On 13 August this machine had 8.3&nbsp;GB of disk free at 98&nbsp;% full and
+            5.2&nbsp;GB of memory available — neither was enough.
+          </p>
+          <pre class="term">df -h /                 <span class="dim"># want well over 10 GB free</span>
+free -h                 <span class="dim"># want more than the 7 GB heap</span>
+docker system df        <span class="dim"># where the space has gone</span>
+
+docker builder prune -af <span class="dim"># build cache only — safe; ~29 GB reclaimable</span></pre>
+          <p>
+            Browsers are usually the memory culprit; Chrome alone held 10.9&nbsp;GB here. For disk,
+            prune the <strong>build cache only</strong>. This box also hosts unrelated projects —
+            <code>ddev-*</code>, <code>drupal-mariadb</code>, <code>abi-*-mariadb</code> among 59
+            volumes — so <code>docker volume prune</code> and <code>docker image prune -a</code>
+            would take those with them.
           </p>
         </div>
       </div>
@@ -563,18 +596,40 @@ systemctl --user status system-tracker</pre>
         <div class="note">
           <h3>Committed, not yet deployed</h3>
           <p>
-            Both fixes sit on <code>fix/s3-content-type-and-nginx-resolver</code> and change
-            <code>packages/core</code> and the webapp image, so they need a rebuild of both images
-            to take effect. Until then new screenshots keep being written with the wrong media
-            type.
-          </p>
-          <p>
-            Deploy <strong>the webapp first</strong>. Doing it the other way round repeats the
-            outage: redeploying <code>api</code> moves its address while the old nginx is still
-            caching the previous one. With the resolver already live, the same address change is
-            picked up within <code>valid=10s</code> and costs nothing.
+            Both fixes are on <code>main</code> as of <code>2af5442</code>. One changes
+            <code>packages/core</code> and the other the webapp image, so <strong>both</strong>
+            images must be rebuilt — the commands are in step 1. Until that happens new
+            screenshots keep being written with the wrong media type, and the objects repaired by
+            hand are only the ones written before the fix.
           </p>
         </div>
+        <p>Then repoint the two services, <strong>webapp first</strong>:</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Order</th><th>Service</th><th>Image</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td><code>System-Tracker</code></td><td><code>ghcr.io/gunaprakash03/tracker-webapp:2af5442</code></td></tr>
+              <tr><td>2</td><td><code>api</code></td><td><code>ghcr.io/gunaprakash03/tracker-api:2af5442</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <h3>The order is the whole point</h3>
+          <p>
+            Deploying <code>api</code> first repeats the outage: it moves the API's address while
+            the old nginx is still caching the previous one. With the resolver already live, that
+            same address change is picked up within <code>valid=10s</code> and costs nothing.
+            Confirm the health check answers through the public URL after step 1, before starting
+            step 2.
+          </p>
+        </div>
+        <pre class="term"><span class="dim"># after each step</span>
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://system-tracker-production.up.railway.app/api/health
+
+<span class="dim"># once the API is on the new image, a fresh capture should report image/jpeg</span>
+aws s3api head-object --bucket system-moniter \
+  --key <span class="v">&lt;newest-key&gt;</span> --query ContentType --output text</pre>
       </div>
     </section>
 
