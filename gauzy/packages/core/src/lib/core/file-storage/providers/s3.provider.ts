@@ -20,6 +20,38 @@ import { Provider } from './provider';
 import { RequestContext } from '../../context';
 
 /**
+ * Media types by file extension, for objects we upload to S3 ourselves.
+ *
+ * S3 stores whatever Content-Type it is given at upload time and serves it back
+ * verbatim — unlike the LOCAL provider, where the API served the bytes and
+ * derived the header from the file extension on every read. So a wrong value
+ * here is permanent for that object, and the symptom is a screenshot that
+ * downloads instead of opening: `<img>` sniffs the bytes and renders anyway,
+ * but a top-level navigation trusts the header.
+ */
+const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	pdf: 'application/pdf'
+};
+
+/**
+ * The media type for a storage key, or undefined when the extension is unknown.
+ *
+ * Undefined rather than a guess: omitting Content-Type lets S3 apply its own
+ * default, which is a more honest answer than labelling an unknown file as an
+ * image — the mistake this replaced.
+ */
+function mimeTypeForKey(key: string): string | undefined {
+	const extension = basename(key).split('.').pop()?.toLowerCase();
+	return extension ? MIME_TYPE_BY_EXTENSION[extension] : undefined;
+}
+
+/**
  * Configuration interface for AWS S3 storage.
  */
 export interface IS3ProviderConfig {
@@ -190,6 +222,11 @@ export class S3Provider extends Provider<S3Provider> {
 				return multerS3({
 					s3: s3Client,
 					bucket: this.getS3Bucket(),
+					// Detect the media type from the uploaded stream. Without this,
+					// multer-s3 falls back to `application/octet-stream`, which S3
+					// then serves forever — so every screenshot downloads rather
+					// than opening when its URL is followed directly.
+					contentType: multerS3.AUTO_CONTENT_TYPE,
 					metadata: function (_req, file, cb) {
 						cb(null, { fieldName: file.fieldname });
 					},
@@ -274,8 +311,10 @@ export class S3Provider extends Provider<S3Provider> {
 				Bucket: this.getS3Bucket(), // The name of the bucket to which the file should be uploaded.
 				Body: fileContent, // The content of the file to be uploaded.
 				Key: key, // The key (path) under which to store the file in the bucket.
-				ContentDisposition: `inline; ${filename}`, // Additional headers for the object.
-				ContentType: 'image'
+				// `inline; <name>` is not a valid header — the filename must be a
+				// named parameter, or the whole disposition is ignored.
+				ContentDisposition: `inline; filename="${filename}"`,
+				ContentType: mimeTypeForKey(key)
 			});
 
 			/**
