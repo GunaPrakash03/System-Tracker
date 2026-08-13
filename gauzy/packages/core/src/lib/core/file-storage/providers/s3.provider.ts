@@ -20,6 +20,28 @@ import { Provider } from './provider';
 import { RequestContext } from '../../context';
 
 /**
+ * How long a presigned screenshot link stays valid.
+ *
+ * A presigned URL is a bearer credential: whoever holds it can fetch the object
+ * from anywhere until it expires, and nothing about the request tells S3 which
+ * page it came from. So this window is the whole of the access control, and an
+ * hour — the AWS SDK's usual default, and what this was — is a long time for a
+ * link to someone's screen to keep working after it has been copied out of the
+ * dashboard.
+ *
+ * Two minutes instead. The URL is regenerated on every read (see
+ * `screenshot.subscriber.ts`), so the dashboard never depends on one lasting:
+ * it only has to survive from the API response until the browser has fetched
+ * the image. Raise it if screenshots start failing to load on slow connections
+ * or on a gallery left open while scrolling; lower it if that never happens.
+ *
+ * This shortens the window, it does not close it. Closing it means never giving
+ * the browser an S3 URL at all — serving the bytes through an authenticated
+ * route instead.
+ */
+const SIGNED_URL_TTL_SECONDS = 120;
+
+/**
  * Media types by file extension, for objects we upload to S3 ourselves.
  *
  * S3 stores whatever Content-Type it is given at upload time and serves it back
@@ -185,7 +207,7 @@ export class S3Provider extends Provider<S3Provider> {
 					Key: fileURL
 				}),
 				{
-					expiresIn: 3600
+					expiresIn: SIGNED_URL_TTL_SECONDS
 				}
 			);
 
