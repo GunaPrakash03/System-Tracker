@@ -57,6 +57,14 @@ DEFAULT_CONFIG = {
     # more accurate watch time. 5s over a 60s interval = 12 samples.
     "focus_sample_seconds": 5,
     # wm_class substrings treated as browsers (their focused title => a tab).
+    #
+    # This list and `watchlist` below answer different questions and are matched
+    # against different things: this one against the focused window's wm_class,
+    # to decide whether the title is a browser TAB; `watchlist` against a process
+    # name, to decide whether the app is REPORTED at all. A browser named here
+    # but missing from the watchlist is recognised as a browser and then dropped
+    # before anything is posted — which is what silently happened to Brave,
+    # Chromium, Edge and Opera. Keep the two in step.
     "browsers": ["chrome", "chromium", "firefox", "edge", "brave", "opera"],
     "watchlist": [
         "code", "postman", "antigravity", "sublime", "idea", "pycharm",
@@ -67,7 +75,11 @@ DEFAULT_CONFIG = {
         "node", "postgres", "docker", "dockerd", "containerd",
         "nginx", "python", "php", "redis", "mysql", "mariadb",
         "java", "ruby", "go$",
-        "chrome", "firefox", "spotify",
+        # Browsers. Process names, not wm_class: Edge ships as `msedge`, and
+        # Brave and Chromium answer to both `brave`/`brave-browser` and
+        # `chromium`/`chromium-browser`, which these substrings both cover.
+        "chrome", "chromium", "firefox", "brave", "msedge", "opera",
+        "spotify",
     ],
     "exclude": [
         "sandbox", "crashpad", "crash.?handler", "-helper",
