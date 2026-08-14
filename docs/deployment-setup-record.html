@@ -197,7 +197,7 @@
     <p class="eyebrow">System-Tracker · setup record</p>
     <h1>How the deployment was set up</h1>
     <p class="standfirst">
-      The configuration actually applied on 12–13 August 2026 — one public URL on Railway, two
+      The configuration actually applied on 12–14 August 2026 — one public URL on Railway, two
       Ubuntu workstations reporting into it, and the screenshot store moved off the volume and
       onto S3.
     </p>
@@ -610,10 +610,12 @@ systemctl --user status system-tracker</pre>
           the image, which is what takes it off the repository builder:
         </p>
         <p>
-          Setting the source image has no <code>railway</code> CLI equivalent — it is
-          <em>Settings → Source</em> in the dashboard, or the platform API. That is the step that
-          replaces the repository connection; the redeploy below only restarts the service with
-          whatever source it already has.
+          At the time this was done, setting the source image was believed to have no
+          <code>railway</code> CLI equivalent, so it was performed as <em>Settings → Source</em> in
+          the dashboard. That is no longer true — CLI 5.37.2 has
+          <code>railway service source connect --image</code>, used in step 9 below. Either way
+          the point stands: setting the source is what replaces the repository connection, and the
+          redeploy below only restarts the service with whatever source it already has.
         </p>
         <pre class="term"><span class="dim"># 1. webapp FIRST — it carries the resolver fix that makes step 2 safe</span>
 <span class="dim">#    Settings -> Source -> ghcr.io/gunaprakash03/tracker-webapp:39f50b2</span>
@@ -655,6 +657,102 @@ aws s3api head-object --bucket system-moniter \
           <code>aa8885f</code>, exactly one touches API code, so the jump is the Content-Type fix
           and nothing else. The shorter presigned-URL expiry in <code>39f50b2</code> is API-side
           and is therefore still waiting on the next API build.
+        </p>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="step">
+      <div class="marker">9</div>
+      <h2>14 August — the dashboard trim, and the half-fixed builder</h2>
+      <div class="step-body">
+        <p>
+          Commit <code>cd1d76d</code> removes the Human Resources dashboard tab, trims Settings to
+          Tracker Settings / Danger Zone / AI Providers, makes a user's own profile read-only for
+          EMPLOYEE and MANAGER, and drops <em>Forgot password?</em> from the login page. Both
+          images were built and pushed as before.
+        </p>
+        <div class="note">
+          <h3>The repository builder was only ever taken off <code>api</code></h3>
+          <p>
+            The fix recorded in step 8 was applied to one service. <code>api</code> moved to image
+            deploys and stayed there — it went to <code>tracker-api:cd1d76d</code> and reported
+            SUCCESS with an empty commit column, which is what an image deploy looks like.
+            <code>System-Tracker</code> kept its repository connection, so the <code>git push</code>
+            behind <code>cd1d76d</code> started a Railpack build of the whole monorepo. Two of them
+            sat in BUILDING (05:07 for <code>acd9fde</code>, 05:34 for <code>cd1d76d</code>) while
+            the pushed webapp image went untouched and the service source still read
+            <code>tracker-webapp:39f50b2</code>.
+          </p>
+          <p>
+            The tell is the commit column in <code>railway deployment list</code>. A hash there
+            means Railway built from the repository; <code>-</code> means it pulled the image. That
+            single column distinguishes the two states faster than any log does.
+          </p>
+        </div>
+        <p>
+          Disconnecting the source is the step that was missing. Reconnecting by image without it
+          leaves the repository trigger in place:
+        </p>
+        <pre class="term"><span class="dim"># 1. branding — the image bakes ENV PLATFORM_LOGO=logo_Gauzy.svg and the</span>
+<span class="dim">#    entrypoint substitutes the CURRENT environment at every start, so an</span>
+<span class="dim">#    unset variable means the Ever mark. --skip-deploys: do not deploy the old image</span>
+railway variable set --service System-Tracker --skip-deploys \
+  PLATFORM_LOGO=assets/images/logos/logo_young_globes.png \
+  NO_INTERNET_LOGO=assets/images/logos/logo_young_globes.png \
+  GAUZY_CLOUD_APP= \
+  GAUZY_CLOUD_ENDPOINT=
+
+<span class="dim"># 2. stop the stuck Railpack build</span>
+railway down --service System-Tracker --yes
+
+<span class="dim"># 3. drop the repository source — what step 8 missed on this service</span>
+railway service source disconnect --service System-Tracker
+
+<span class="dim"># 4. point it at the pushed image (webapp FIRST, per step 8)</span>
+railway service source connect \
+  --image ghcr.io/gunaprakash03/tracker-webapp:cd1d76d \
+  --service System-Tracker
+
+railway redeploy --service System-Tracker --environment production --yes
+
+<span class="dim"># 5. api — no API code in cd1d76d, but the live image was aa8885f and so</span>
+<span class="dim">#    still missed the two-minute presigned expiry from 39f50b2</span>
+railway service source connect \
+  --image ghcr.io/gunaprakash03/tracker-api:cd1d76d \
+  --service api</pre>
+        <div class="note">
+          <h3>Three settings to re-check after reconnecting a source</h3>
+          <p>
+            Disconnecting can reset service configuration, and two of these are load-bearing. The
+            start command must remain
+            <code>./entrypoint.compose.sh nginx -g "daemon off;"</code> — without it the container
+            never runs the entrypoint that substitutes <code>PLATFORM_LOGO</code>,
+            <code>API_BASE_URL</code> and the rest into the compiled bundles, and the result is a
+            site that serves but shows the Ever logo and cannot reach the API. The health check
+            path stays <code>/</code>. The root directory <code>/gauzy</code> is a repository-build
+            artifact and should be cleared, since it means nothing to an image deploy.
+          </p>
+        </div>
+        <div class="note">
+          <h3>The registry is private, and the credentials are not in the CLI</h3>
+          <p>
+            An anonymous pull of <code>tracker-webapp:cd1d76d</code> returns 403.
+            <code>service source connect</code> has no flag for registry credentials, so a
+            reconnect can drop them and the first deploy then fails on image pull. As in step 3,
+            that is a UI-only field: <em>Settings → Source</em>, ghcr username and token. Expect it
+            rather than debug it.
+          </p>
+        </div>
+        <p>
+          The branding variables in step 1 above are the actual fix for the Ever logo on the login
+          page, and no rebuild delivers it. Editing
+          <code>packages/ui-config/…/environment.prod.ts</code> does nothing at all: that file is
+          gitignored and regenerated by <code>.scripts/configure.ts</code> on every
+          <code>yarn config</code>. Its defaults were corrected in <code>.scripts/env.ts</code> in
+          the same commit, which fixes non-Docker builds — but the Docker path compiles a
+          <code>DOCKER_PLATFORM_LOGO</code> placeholder and resolves it from the environment at
+          container start, so on Railway the service variable is the only thing that decides.
         </p>
       </div>
     </section>

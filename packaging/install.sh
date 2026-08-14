@@ -45,25 +45,43 @@ mkdir -p "$APP_DIR"
 cp "$SRC/tracker/proc_tracker.py" "$SRC/tracker/report.py" "$APP_DIR/"
 
 # 2. Config
-if [ ! -f "$APP_DIR/config.json" ]; then
-    cp "$SRC/tracker/config.example.json" "$APP_DIR/config.json"
-    # 0600 BEFORE anything is written into it. This file holds the Gauzy
-    # password in plaintext, and the default umask leaves it world-readable —
-    # on a shared workstation any local user could read the credentials the
-    # tracker posts everyone's activity with.
-    chmod 600 "$APP_DIR/config.json"
-    if [ -n "${GAUZY_URL:-}" ] || [ -n "${GAUZY_EMAIL:-}" ] || [ -n "${GAUZY_PASSWORD:-}" ]; then
-        python3 - "$APP_DIR/config.json" <<'PY'
+#
+# An existing config is REPLACED, not kept. Preserving it meant a workstation
+# could never pick up a changed template — a new server_url, a new default —
+# without someone editing the file by hand on that machine, which defeats the
+# point of shipping a template at all.
+#
+# The old file is copied aside first, because it holds the only record of that
+# machine's credentials. Losing them is not a quiet failure: GauzyClient.login()
+# raises on a bad password, nothing catches it, and the unit is Restart=always
+# with RestartSec=5 — so a workstation left without working credentials
+# crash-loops and keeps posting failed logins at the API rather than stopping.
+if [ -f "$APP_DIR/config.json" ]; then
+    BACKUP="$APP_DIR/config.json.bak-$(date +%Y%m%d-%H%M%S)"
+    cp "$APP_DIR/config.json" "$BACKUP"
+    chmod 600 "$BACKUP"
+    say "Existing config replaced; previous one kept at $BACKUP"
+    rm -f "$APP_DIR/config.json"
+fi
+
+cp "$SRC/tracker/config.example.json" "$APP_DIR/config.json"
+# 0600 BEFORE anything is written into it. This file holds the Gauzy
+# password in plaintext, and the default umask leaves it world-readable —
+# on a shared workstation any local user could read the credentials the
+# tracker posts everyone's activity with.
+chmod 600 "$APP_DIR/config.json"
+if [ -n "${GAUZY_URL:-}" ] || [ -n "${GAUZY_EMAIL:-}" ] || [ -n "${GAUZY_PASSWORD:-}" ]; then
+    python3 - "$APP_DIR/config.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]; c = json.load(open(p))
 for k, e in (("server_url","GAUZY_URL"),("email","GAUZY_EMAIL"),("password","GAUZY_PASSWORD")):
     if os.environ.get(e): c[k] = os.environ[e]
 json.dump(c, open(p,"w"), indent=2)
 PY
-        say "Config seeded from environment."
-    else
-        warn "Edit $APP_DIR/config.json — set server_url / email / password."
-    fi
+    say "Config seeded from environment."
+else
+    warn "No GAUZY_EMAIL / GAUZY_PASSWORD given — $APP_DIR/config.json has no credentials."
+    warn "Set them before the service runs, or it will fail to log in and restart every 5s."
 fi
 
 # 3. GNOME extension (silent screenshots)
