@@ -706,21 +706,30 @@ railway variable set --service System-Tracker --skip-deploys \
 <span class="dim"># 2. stop the stuck Railpack build</span>
 railway down --service System-Tracker --yes
 
-<span class="dim"># 3. drop the repository source — what step 8 missed on this service</span>
+<span class="dim"># 3. drop the repository source — what step 8 missed on this service.</span>
+<span class="dim">#    Without this, connecting an image leaves the repo trigger in place and</span>
+<span class="dim">#    the next push starts another Railpack build over the top.</span>
 railway service source disconnect --service System-Tracker
 
 <span class="dim"># 4. point it at the pushed image (webapp FIRST, per step 8)</span>
+SHA=$(git -C ~/System-Tracker rev-parse --short HEAD)
+
 railway service source connect \
-  --image ghcr.io/gunaprakash03/tracker-webapp:cd1d76d \
+  --image ghcr.io/gunaprakash03/tracker-webapp:<span class="v">$SHA</span> \
   --service System-Tracker
 
 railway redeploy --service System-Tracker --environment production --yes
 
-<span class="dim"># 5. api — no API code in cd1d76d, but the live image was aa8885f and so</span>
-<span class="dim">#    still missed the two-minute presigned expiry from 39f50b2</span>
+<span class="dim"># 5. api — only after / and /api/health both return 200. Whether this one</span>
+<span class="dim">#    matters depends on the commit: cd1d76d touched no packages/core and was</span>
+<span class="dim">#    deployed only to pick up 39f50b2's presigned-URL expiry, whereas</span>
+<span class="dim">#    85651d4 adds employee.employeeCode and a migration, so the API image is</span>
+<span class="dim">#    where the change actually lives.</span>
 railway service source connect \
-  --image ghcr.io/gunaprakash03/tracker-api:cd1d76d \
-  --service api</pre>
+  --image ghcr.io/gunaprakash03/tracker-api:<span class="v">$SHA</span> \
+  --service api
+
+railway redeploy --service api --environment production --yes</pre>
         <div class="note">
           <h3>Three settings to re-check after reconnecting a source</h3>
           <p>
@@ -737,7 +746,7 @@ railway service source connect \
         <div class="note">
           <h3>The registry is private, and the credentials are not in the CLI</h3>
           <p>
-            An anonymous pull of <code>tracker-webapp:cd1d76d</code> returns 403.
+            An anonymous pull of <code>tracker-webapp:&lt;tag&gt;</code> returns 403.
             <code>service source connect</code> has no flag for registry credentials, so a
             reconnect can drop them and the first deploy then fails on image pull. As in step 3,
             that is a UI-only field: <em>Settings → Source</em>, ghcr username and token. Expect it
