@@ -560,7 +560,16 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 				pathMatch: 'prefix',
 				data: {
 					translationKey: 'MENU.SCREENSHOTS',
-					permissionKeys: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.TIME_TRACKER],
+					// Reporting ABOUT staff, so the same gate as Employees above:
+					// admins and managers, never the employee being screenshotted.
+					//
+					// This previously listed ADMIN_DASHBOARD_VIEW and TIME_TRACKER.
+					// The keys are evaluated with hasAnyPermission(), not all-of, and
+					// every tracked employee holds TIME_TRACKER by definition — so the
+					// second key handed the entry to exactly the people it was meant
+					// to exclude, and each of them saw a Screenshots link to their own
+					// captures.
+					permissionKeys: [PermissionsEnum.ORG_EMPLOYEES_VIEW],
 					// The same key Time & Activity carried, so the SQL feature trim
 					// keeps governing this view now that its old parent is gone.
 					featureKey: FeatureEnum.FEATURE_EMPLOYEE_TIME_ACTIVITY
