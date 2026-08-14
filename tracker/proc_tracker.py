@@ -152,13 +152,21 @@ DEFAULT_CONFIG = {
     # "active" for this long after your last keystroke, so short pauses for
     # reading or thinking do not register as idle. Overridable per employee.
     "idle_threshold_seconds": 180,
-    # Whether media alone is enough to count as active. TRUE (the default) means
-    # background video/music keeps the machine active. Set FALSE — or override it
-    # per employee — and media playing with no keyboard/mouse counts as IDLE,
-    # which is what an admin wants for staff who leave Spotify or YouTube running
-    # while away from the desk. Real input always wins either way; this decides
-    # only whether *media on its own* is enough.
-    "count_audio_as_active": True,
+    # Whether media alone is enough to count as active. FALSE (the default) means
+    # video or music playing with no keyboard or mouse counts as IDLE — a video
+    # left running while nobody is at the desk should not read as an hour of work.
+    # Set TRUE, or override it per employee, for roles where watching genuinely is
+    # the work: training, QA review, a screen-share someone is following.
+    #
+    # Real input always wins either way. This decides only whether *media on its
+    # own* is enough, so taking notes over a playing video stays active.
+    #
+    # This defaulted to True until it was seen in practice: an untouched YouTube
+    # tab held the activity bar at 100% indefinitely. The posted keyboard/mouse
+    # flags did already read 0 in that case (see time_slot_payload), so the two
+    # were distinguishable on the dashboard — but only to someone who knew to
+    # look, and the headline percentage said the opposite.
+    "count_audio_as_active": False,
 
     # ----- Per-employee overrides ------------------------------------------- #
     # Settings the super admin sets PER EMPLOYEE rather than in this file.
@@ -944,7 +952,7 @@ def is_active_now(cfg, overrides=None):
     threshold = int(setting(cfg, overrides, "idle_threshold_seconds", 180) or 180)
     recent_input = (idle is not None) and (idle < threshold)
     playing = is_audio_playing()
-    audio = bool(setting(cfg, overrides, "count_audio_as_active", True)) and playing
+    audio = bool(setting(cfg, overrides, "count_audio_as_active", False)) and playing
     return recent_input or audio, {"idle_s": idle, "audio": audio,
                                    "media_playing": playing,
                                    "recent_input": recent_input}
@@ -1993,8 +2001,11 @@ def main():
             if _boot else
             f"per-employee settings: {cfg.get('settings_url')} "
             f"— unreachable or empty, using config.json values")
-    if not setting(cfg, _boot, "count_audio_as_active", True):
-        log(cfg, "idle rule: background media alone counts as IDLE for this employee")
+    # Log the EXCEPTION, not the default. Media-as-idle is now the norm, and a
+    # line printed on every start says nothing; a line printed only when this
+    # employee counts media as work is the one worth seeing in a log.
+    if setting(cfg, _boot, "count_audio_as_active", False):
+        log(cfg, "idle rule: background media alone counts as ACTIVE for this employee")
     _idle_after = int(setting(cfg, _boot, "idle_threshold_seconds", 180) or 180)
     if _idle_after != cfg.get("idle_threshold_seconds", 180):
         log(cfg, f"idle rule: idle after {_idle_after}s without input (per-employee)")

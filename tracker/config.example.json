@@ -73,7 +73,7 @@
   "cpu_min_percent": 1.0,
   "max_processes": 40,
   "idle_threshold_seconds": 180,
-  "count_audio_as_active": true,
+  "count_audio_as_active": false,
   "capture_screenshots": true,
   "screenshot_max_width": 800,
   "screenshot_jpeg_quality": 75,

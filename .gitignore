@@ -1,6 +1,10 @@
 # Anchored to this repo's own files. Unanchored patterns would also apply
 # inside gauzy/, where 12k vendored files could be hidden by accident.
 /tracker/config.json
+# Backups of it carry the same plaintext Gauzy password. install.sh writes
+# config.json.bak-<timestamp> on every re-install, so these accumulate on a
+# workstation and must never become committable by a stray `git add -A`.
+/tracker/config.json.bak*
 /dashboard-mods/*.bak
 /deploy/.env
 /deploy/edge/www/
