@@ -149,11 +149,13 @@
 							</div>
 						</div>
 					</div>
-					<div class="actions">
-						<button [disabled]="form.invalid" (click)="submitForm()" nbButton status="success">
-							{{ 'PROFILE_PAGE.SAVE' | translate }}
-						</button>
-					</div>
+					@if (!isReadOnly) {
+						<div class="actions">
+							<button [disabled]="form.invalid" (click)="submitForm()" nbButton status="success">
+								{{ 'PROFILE_PAGE.SAVE' | translate }}
+							</button>
+						</div>
+					}
 				</form>
 			</div>
 		</div>
@@ -161,12 +163,16 @@
 </nb-card>
 
 <ng-template #imageUploaderTemplate>
-	<ngx-image-uploader
-		(changeHoverState)="hoverState = $event"
-		(uploadedImageAsset)="updateImageAsset($event)"
-		(uploadImageAssetError)="handleImageUploadError($event)"
-	></ngx-image-uploader>
-	<svg
+	<!-- The uploader writes straight through updateImageAsset() without touching
+	     the form group, so disabling the form does not cover it. In read-only mode
+	     the picture is still shown, only the upload affordance is withheld. -->
+	@if (!isReadOnly) {
+		<ngx-image-uploader
+			(changeHoverState)="hoverState = $event"
+			(uploadedImageAsset)="updateImageAsset($event)"
+			(uploadImageAssetError)="handleImageUploadError($event)"
+		></ngx-image-uploader>
+		<svg
 		xmlns="http://www.w3.org/2000/svg"
 		xmlns:xlink="http://www.w3.org/1999/xlink"
 		width="68"
@@ -185,8 +191,9 @@
 			<circle cx="34" cy="34" r="26" fill="#0091FF" opacity=".9" />
 			<use fill="#FFF" fill-rule="nonzero" xlink:href="#a" />
 		</g>
-	</svg>
-	<div class="image-overlay" [style.opacity]="hoverState ? '0.2' : '0'"></div>
+		</svg>
+		<div class="image-overlay" [style.opacity]="hoverState ? '0.2' : '0'"></div>
+	}
 	@if (!!form) {
 		<img
 			[src]="form.get('imageUrl').value"

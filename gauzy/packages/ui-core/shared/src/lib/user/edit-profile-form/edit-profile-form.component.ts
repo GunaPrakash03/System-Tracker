@@ -57,6 +57,23 @@ export class EditProfileFormComponent implements OnInit, OnDestroy {
 
 	@Output() userSubmitted = new EventEmitter<void>();
 
+	/**
+	 * True when the signed-in user may look at their own profile but not change it.
+	 *
+	 * This component serves two different screens: `/pages/auth/profile` ("my
+	 * profile", where `selectedUser` is never set) and the admin's Edit User /
+	 * Edit Employee form (where it is). Only the first is restricted — disabling
+	 * the form outright would also break an admin editing somebody else, which is
+	 * the same component instance with a different input.
+	 *
+	 * NOTE: this is a UI restriction, not an authorisation boundary. Gauzy's
+	 * `PUT /user/:id` still lets a user update their own record, so anyone with a
+	 * console can bypass the hidden button. It stops accidental edits and matches
+	 * what the role is expected to be able to do; it does not enforce it. Enforcing
+	 * it needs a server-side check in `packages/core`, which is a separate change.
+	 */
+	public isReadOnly: boolean = false;
+
 	public form: UntypedFormGroup = EditProfileFormComponent.buildForm(this._fb);
 	static buildForm(fb: UntypedFormBuilder): UntypedFormGroup {
 		return fb.group(
@@ -95,6 +112,7 @@ export class EditProfileFormComponent implements OnInit, OnDestroy {
 
 	async ngOnInit() {
 		this.excludeRoles();
+		this.resolveEditability();
 		this.user$
 			.pipe(
 				debounceTime(100),
@@ -131,6 +149,43 @@ export class EditProfileFormComponent implements OnInit, OnDestroy {
 	}
 
 	/**
+	 * Decides whether the signed-in user may edit the profile currently on screen.
+	 *
+	 * Editing is reserved for SUPER_ADMIN and ADMIN. EMPLOYEE and MANAGER get the
+	 * same page in read-only form. The check is by role rather than by permission
+	 * because the roles are what was specified, and because no existing Gauzy
+	 * permission expresses "may edit own profile" — ORG_USERS_EDIT is about
+	 * editing *other* users and is not granted to an employee anyway.
+	 *
+	 * Disabling the form group is what makes it read-only: every control in the
+	 * template binds through `formControlName`, so one call covers all of them and
+	 * a field added later is covered automatically. Disabled controls keep their
+	 * patched values, so the profile still displays normally.
+	 */
+	async resolveEditability(): Promise<void> {
+		// An admin editing someone else is a different screen; leave it editable.
+		if (this.selectedUser?.id) {
+			return;
+		}
+		try {
+			const canEdit = await firstValueFrom(
+				this._authService.hasRole([RolesEnum.SUPER_ADMIN, RolesEnum.ADMIN])
+			);
+			this.isReadOnly = !canEdit;
+
+			if (this.isReadOnly) {
+				this.form.disable();
+			}
+		} catch (error) {
+			// Fail CLOSED: if the role cannot be resolved the form stays disabled
+			// rather than silently granting edit rights to whoever hit the error.
+			this.isReadOnly = true;
+			this.form.disable();
+			this._errorHandler?.handleError(error);
+		}
+	}
+
+	/**
 	 * Retrieves the profile of the selected user or the current user.
 	 * Fetches user details including tags and role, and updates the form.
 	 */
@@ -159,6 +214,12 @@ export class EditProfileFormComponent implements OnInit, OnDestroy {
 	}
 
 	async updateImageAsset(image: IImageAsset) {
+		// Matches the guard in submitForm(): the uploader is hidden in read-only
+		// mode, but it does not go through the disabled form group, so the write
+		// path needs blocking too.
+		if (this.isReadOnly) {
+			return;
+		}
 		this._store.user = {
 			...this._store.user,
 			imageId: image.id
@@ -205,6 +266,11 @@ export class EditProfileFormComponent implements OnInit, OnDestroy {
 	}
 
 	async submitForm() {
+		// The Save button is hidden in read-only mode; this guards the other ways
+		// in (a stale template, an enter key, a direct call from a test).
+		if (this.isReadOnly) {
+			return;
+		}
 		const { timeFormat, timeZone } = this.form.value;
 		const { email, firstName, lastName, tags, preferredLanguage, password, phoneNumber } = this.form.value;
 

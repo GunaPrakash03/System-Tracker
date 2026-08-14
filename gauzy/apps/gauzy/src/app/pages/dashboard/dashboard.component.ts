@@ -4,7 +4,7 @@ import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, map, tap } from 'rxjs/operators';
 import { TranslateService } from '@ngx-translate/core';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
-import { ISelectedEmployee, PermissionsEnum } from '@gauzy/contracts';
+import { ISelectedEmployee } from '@gauzy/contracts';
 import { PageTabRegistryService, Store, PageTabsetPageId } from '@gauzy/ui-core/core';
 import { TranslationBaseComponent } from '@gauzy/ui-core/i18n';
 import { DynamicTabsComponent } from '@gauzy/ui-core/shared';
@@ -84,27 +84,15 @@ export class DashboardComponent extends TranslationBaseComponent implements OnIn
 		this._pageTabRegistryService.removePageTab(this.tabsetId, 'accounting');
 		this._pageTabRegistryService.removePageTab(this.tabsetId, 'hr');
 
-		// The Accounting tab, which upstream registers when no employee is selected
-		// in the header, is deliberately gone. Note the consequence: Human
-		// Resources below is registered only when an employee IS selected, so with
-		// no selection this tabset is now empty.
-
-		// Check if the user has permission to view human resources
-		if (this.selectedEmployee && this.selectedEmployee.id) {
-			// Register the human resources tab
-			this._pageTabRegistryService.registerPageTab({
-				tabsetId: this.tabsetId, // The identifier for the tabset
-				tabId: 'hr', // The identifier for the tab
-				tabsetType: 'route', // The type of tabset to use
-				route: '/pages/dashboard/hr', // The route for the tab
-				tabTitle: (_i18n) => _i18n.getTranslation('DASHBOARD_PAGE.HUMAN_RESOURCES'), // The title for the tab
-				tabIcon: 'person-outline', // The icon for the tab
-				responsive: true, // Whether the tab is responsive
-				activeLinkOptions: { exact: false }, // The options for the active link
-				order: 5, // The order of the tab
-				permissions: [PermissionsEnum.ADMIN_DASHBOARD_VIEW, PermissionsEnum.HUMAN_RESOURCE_DASHBOARD]
-			});
-		}
+		// Both tabs upstream registers here are deliberately gone. Accounting
+		// reports on invoicing and expenses; Human Resources reports on headcount,
+		// recruitment and salaries. Neither shows tracking data, which is the only
+		// thing this deployment reports on, so this tabset is now always empty and
+		// the dashboard renders its single default view.
+		//
+		// The /pages/dashboard/hr route still resolves, so an existing bookmark is
+		// not broken — only the tab is gone. That matches how Teams and Project
+		// Management are handled in registerPageTabs() above.
 
 		// Reload the dynamic tabs component
 		this.dynamicTabsComponent.reload$.next(true);

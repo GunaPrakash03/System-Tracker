@@ -175,11 +175,14 @@
 					</nb-checkbox>
 					}
 				</div>
-				<div class="forgot-link-container">
-					<a class="forgot-password-link caption-2" routerLink="/auth/request-password" tabindex="-1">
-						{{ 'LOGIN_PAGE.FORGOT_PASSWORD_TITLE' | translate }}
-					</a>
-				</div>
+				<!-- "Forgot password?" is deliberately gone. A self-service reset lets an
+				     employee change the password that tracker/config.json authenticates
+				     with, and the tracker has no way to learn the new one — it would keep
+				     failing to log in and stop posting until an admin re-provisioned the
+				     file by hand. Password changes go through an admin instead, who can
+				     update the workstation at the same time.
+				     The /auth/request-password route still exists; only the link is gone. -->
+				<div class="forgot-link-container"></div>
 			</div>
 
 			<div class="submit-btn-wrapper">

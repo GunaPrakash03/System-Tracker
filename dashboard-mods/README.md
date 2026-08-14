@@ -31,6 +31,30 @@ image must be built from this branch. See `docs/railway-deployment.md`.
 | 8 | **Manager scoping** — which employees a manager may see | `packages/core/.../employee/managed-employee.service.ts`, `employee.service.ts` |
 | 9 | Time-slot and activity services adjusted for tracker-published data | `packages/core/.../time-tracking/{time-slot,activity}/` |
 | 10 | Per-employee settings carried on the employee model | `packages/contracts/.../employee.model.ts`, employee DTO + create handler |
+| 11 | **Human Resources dashboard tab removed** — headcount/recruitment/salary reporting, none of which this deployment carries data for | `apps/gauzy/src/app/pages/dashboard/dashboard.component.ts` |
+| 12 | **Settings trimmed** to Tracker Settings, Danger Zone and AI Providers — Features, Accounting Templates, Monitoring and OAuth Clients removed | `base-nav-menu.component.ts` |
+| 13 | **Own profile is read-only for EMPLOYEE and MANAGER**; SUPER_ADMIN and ADMIN still edit | `packages/ui-core/shared/.../user/edit-profile-form/*.{ts,html}` |
+| 14 | **"Forgot password?" removed** from the login page — a self-service reset breaks the workstation's stored credentials (see below) | `packages/ui-auth/.../login/login.component.html` |
+| 15 | **Branding logo default moved to the generated-env source**, so a clean build is branded | `gauzy/.scripts/env.ts` |
+
+Rows 11–15 are menu/route/permission trims plus one build-config fix. Two of
+them carry reasoning that is not obvious from the diff:
+
+**Row 12 — why code and not SQL.** Every other Settings entry is hidden by
+`config/minimal-tracking-features.sql`, which works by `featureKey`. These four
+entries declare no `featureKey`, so no feature toggle can reach them; the SQL
+trim ran and they stayed. Removing the menu entries was the only lever. Their
+routes still resolve, matching how the dashboard tabs are handled.
+
+**Row 15 — editing `environment.prod.ts` never worked.** That file is
+**gitignored and generated**: `.scripts/configure.ts` unlinks and rewrites both
+`environment.ts` and `environment.prod.ts` on every `yarn config`, filling them
+from the defaults in `.scripts/env.ts` plus whatever is in the environment. A
+locally-edited copy brands only the machine that edited it, which is why the
+deployed login page kept showing the Ever Gauzy mark while the checked-out file
+said otherwise. The default now lives in the tracked script. `PLATFORM_LOGO` as
+an env var still overrides it, and the `deploy/docker-compose.yml` value is
+unchanged.
 
 Rows 8–10 are **API-side**. They change `packages/core`, so the API image is a
 custom build too — this is not a web-only patch set.
@@ -87,7 +111,8 @@ The audit and the removals:
 | `GAUZY_CLOUD_APP` / `GAUZY_CLOUD_ENDPOINT` | Ever's hosted service | blanked in `deploy/docker-compose.yml` |
 | Sentry | Ever Co's project | DSN empty (`docs/HANDOVER.md` §7) |
 | PostHog, Jitsu, Chatwoot, Cloudinary, Google Maps | — | no keys baked into the image; inert |
-| Wasabi, DigitalOcean Spaces, S3 | — | only reachable if `FILE_PROVIDER` selects them; we use `LOCAL` |
+| Wasabi, DigitalOcean Spaces, Cloudinary | — | only reachable if `FILE_PROVIDER` selects them; we do not |
+| Amazon S3 | screenshot and image-asset storage | **in use** — our own bucket and IAM user, credentials held only on the Railway `api` service. See `docs/s3-screenshot-storage.md` |
 
 Three of these deserve their reasoning recorded, because each looked harmless.
 

@@ -1011,16 +1011,16 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 							featureKey: FeatureEnum.FEATURE_SETTING
 						}
 					},
-					{
-						id: 'settings-features',
-						title: 'Features',
-						icon: 'fas fa-swatchbook',
-						link: '/pages/settings/features',
-						data: {
-							translationKey: 'MENU.FEATURES',
-							permissionKeys: [PermissionsEnum.ALL_ORG_EDIT, PermissionsEnum.ALL_ORG_VIEW]
-						}
-					},
+					// Features, Accounting Templates, Monitoring and OAuth Clients are
+					// deliberately not registered. Unlike most Settings entries these
+					// four carry no `featureKey`, so config/minimal-tracking-features.sql
+					// cannot reach them — the SQL toggles only hide items that declare a
+					// feature, which is why these four survived the trim and had to be
+					// removed here instead. Settings is left with Tracker Settings,
+					// Danger Zone and the plugin-contributed AI Providers.
+					//
+					// The routes remain in settings.routes.ts, so a bookmarked URL still
+					// resolves; only the menu entries are gone.
 					{
 						id: 'settings-email-history',
 						title: 'Email History',
@@ -1044,16 +1044,6 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 						}
 					},
 					{
-						id: 'settings-accounting-templates',
-						title: 'Accounting Templates',
-						icon: 'fas fa-address-card',
-						link: '/pages/settings/accounting-templates',
-						data: {
-							translationKey: 'MENU.ACCOUNTING_TEMPLATES',
-							permissionKeys: [PermissionsEnum.VIEW_ALL_ACCOUNTING_TEMPLATES]
-						}
-					},
-					{
 						id: 'settings-file-storage',
 						title: 'File storage',
 						icon: 'fas fa-database',
@@ -1062,16 +1052,6 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 							translationKey: 'MENU.FILE_STORAGE',
 							permissionKeys: [PermissionsEnum.FILE_STORAGE_VIEW],
 							featureKey: FeatureEnum.FEATURE_FILE_STORAGE
-						}
-					},
-					{
-						id: 'settings-monitoring',
-						title: 'Monitoring',
-						icon: 'fas fa-chart-line',
-						link: '/pages/settings/monitoring',
-						data: {
-							translationKey: 'MENU.MONITORING',
-							permissionKeys: [PermissionsEnum.TENANT_SETTING]
 						}
 					},
 					{
@@ -1094,16 +1074,6 @@ export class BaseNavMenuComponent extends TranslationBaseComponent implements On
 							translationKey: 'MENU.CUSTOM_SMTP',
 							permissionKeys: [PermissionsEnum.CUSTOM_SMTP_VIEW],
 							featureKey: FeatureEnum.FEATURE_SMTP
-						}
-					},
-					{
-						id: 'settings-oauth-clients',
-						title: 'OAuth Clients',
-						icon: 'fas fa-key',
-						link: '/pages/settings/oauth-clients',
-						data: {
-							translationKey: 'MENU.OAUTH_CLIENTS',
-							permissionKeys: [PermissionsEnum.OAUTH_CLIENT_VIEW]
 						}
 					},
 					{
