@@ -250,8 +250,13 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 				// both are chrome. Days recorded before the tracker published it
 				// fall back to `apps`, where every tab is simply "chrome".
 				const classifiable = Object.keys(hb.focus || {}).length ? hb.focus : hb.apps || {};
+				// `focus_browser` names the browser each tab was actually open in,
+				// keyed by the same tab title. Absent on days recorded before the
+				// tracker published it, in which case categorise() falls back to
+				// the day's single inferred browser as it always did.
+				const tabBrowsers: Record<string, string> = hb.focus_browser || {};
 				for (const [app, secs] of Object.entries(classifiable)) {
-					const cat = this.categorise(app);
+					const cat = this.categorise(app, tabBrowsers[app]);
 					if (fg[cat] !== undefined) fg[cat] += Number(secs || 0);
 				}
 				const total = fg.Productive + fg.Neutral + fg.Unproductive;
@@ -427,7 +432,14 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 		return (value || '').replace(ProductivityComponent.TAB_SCOPE, '') || 'Neutral';
 	}
 
-	public categorise(title: string): string {
+	/**
+	 * @param title    the focus key — a process name, or a browser tab's page title
+	 * @param tabOwner process name of the browser this tab was open in, when the
+	 *                 tracker recorded it. Omitted for days published before
+	 *                 `focus_browser` existed, and for tabs whose browser could
+	 *                 not be resolved; both fall back to `browserApp`.
+	 */
+	public categorise(title: string, tabOwner?: string): string {
 		const name = (title || '').toLowerCase();
 		if (!name) return 'Neutral';
 		// A "Browser …" category is scoped to browser tabs — it must not classify a
@@ -461,8 +473,14 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 		// Inheriting means the list reads as intended: name the exceptions
 		// (youtube neutral, spotify unproductive) and everything else in the
 		// browser takes the browser's category.
-		if (!this.processNames.has(name) && this.browserApp) {
-			const browserCategory = this.categories[this.browserApp];
+		// Prefer the browser the tracker actually recorded for THIS tab. The
+		// `browserApp` fallback below picks one browser for the entire day and
+		// gives every tab its category — correct while a single browser is open,
+		// and wrong the moment a second one is, since whichever browser was
+		// opened first that day silently claimed the other's pages.
+		const owner = (tabOwner || '').toLowerCase() || this.browserApp;
+		if (!this.processNames.has(name) && owner) {
+			const browserCategory = this.categories[owner];
 			if (browserCategory) return this.bucketOf(browserCategory);
 		}
 		return 'Neutral';
@@ -544,7 +562,7 @@ export class ProductivityComponent implements OnInit, OnDestroy {
 			const kind =
 				sg.k === 'idle'
 					? 'idle'
-					: (this.categorise(sg.a || '').toLowerCase() as 'productive' | 'neutral' | 'unproductive');
+					: (this.categorise(sg.a || '', sg.b).toLowerCase() as 'productive' | 'neutral' | 'unproductive');
 			this.blocks.push({
 				x: pct(a),
 				w: (Math.max(1, len) / span) * 100,

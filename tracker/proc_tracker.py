@@ -2020,11 +2020,23 @@ def main():
     # rows — see GauzyClient.post_usage_summary for why.
     usage_day = None     # the date these totals belong to
     # {"apps": {name: {"r": running, "s": on_screen}},
-    #  "hours": {"HH": {"wall": s, "active": s, "apps": {name: on_screen}}},
+    #  "hours": {"HH": {"wall": s, "active": s, "apps": {name: on_screen},
+    #                   "focus": {name-or-tab-title: on_screen},
+    #                   # Browser each TAB TITLE in `focus` was open in, as a
+    #                   # process name. Only tabs appear here, and only when the
+    #                   # browser could be resolved.
+    #                   "focus_browser": {tab-title: browser process name}}},
     #  "marks": {"started_at": "HH:MM", "last_idle_started_at": "HH:MM"|None,
     #            "last_active_resumed_at": "HH:MM"|None},
     #  "segments": [{"s": "HH:MM", "e": "HH:MM", "k": "active"|"idle",
-    #                "a": on-screen app or None}]}
+    #                "a": on-screen app or None,
+    #                # Present only when "a" is a browser tab title.
+    #                "b": browser process name}]}
+    #
+    # `focus_browser` and the segment "b" are both ADDITIVE — a reader that does
+    # not know them behaves exactly as before, and days recorded before they
+    # existed simply lack them. Neither may become required without breaking
+    # every day already stored.
     usage = {"apps": {}, "hours": {}, "marks": {}, "segments": []}
     # Active/idle state of the previous interval, so a change of state can be
     # timed. None until the first interval: a restart must not invent an idle
@@ -2064,6 +2076,12 @@ def main():
             fg_seconds = {}       # wm_class -> seconds focused
             fg_by_pid = {}        # focused PID -> seconds focused (exact match)
             tabs = {}             # active browser tab title -> seconds watched
+            # Which browser produced each tab: title -> (focused pid, wm_class
+            # token). Without this the browser is lost the moment a tab is
+            # recorded, and anything downstream that needs to know which browser
+            # a page was open in has to guess from the day's app list — which is
+            # right only while exactly one browser is running.
+            tab_src = {}
             active_seconds = 0    # seconds this slot was active (input or audio)
             audio_seconds = 0     # seconds audio counted TOWARDS active
             media_seconds = 0     # seconds media played, counted active or not
@@ -2102,6 +2120,11 @@ def main():
                     tab = clean_tab_title(title, browsers)
                     if tab:
                         tabs[tab] = tabs.get(tab, 0) + fsample
+                        # Last writer wins: the same title in two browsers is
+                        # vanishingly rare, and attributing it to the browser it
+                        # was most recently watched in beats attributing it to
+                        # whichever browser opened first that day.
+                        tab_src[tab] = (fpid, next((b for b in browsers if b in wm), None))
             # Capture at the close of the slot window, so the image belongs to
             # the interval we are about to post; it is uploaded afterwards,
             # once the slot POST has handed back the id to attach it to.
@@ -2232,6 +2255,21 @@ def main():
                         hb["focus"][r["name"]] = hb["focus"].get(r["name"], 0) + fg
             for tab_title, tab_secs in tabs.items():
                 hb["focus"][tab_title] = hb["focus"].get(tab_title, 0) + int(tab_secs)
+                # Publish the owning browser beside the tab, as the PROCESS NAME
+                # — the same key `apps` and the admin's category mapping use, so
+                # the dashboard can look the category up directly instead of
+                # inferring a single browser for the whole day.
+                #
+                # Resolved from the focused PID where possible, because that is
+                # exact; the wm_class token is the fallback and is not always the
+                # process name (Edge's window is microsoft-edge, its binary is
+                # msedge). A tab whose browser cannot be resolved is simply left
+                # out, which puts the reader back on the old inference rather
+                # than asserting something wrong.
+                pid, token = tab_src.get(tab_title, (None, None))
+                owner = (curr.get(pid, {}).get("name") if pid else None) or token
+                if owner:
+                    hb.setdefault("focus_browser", {})[tab_title] = owner
 
             # Day timeline: what was happening, and WHEN. The hour buckets above
             # can say the 10:00 hour was 40% idle; they cannot say idle ran from
@@ -2246,6 +2284,11 @@ def main():
             # previous entry rather than adding one, which keeps a full day to a
             # few dozen entries instead of ~1,400.
             top_app = None
+            # Set only when `top_app` below is swapped for a tab title, so the
+            # segment can still say which browser the page was open in. Same
+            # reason as `focus_browser`: the title alone cannot be attributed to
+            # a browser once more than one is running.
+            top_browser = None
             if active_seconds > 0 and rows:
                 on_screen = [r for r in rows if int(r.get("foreground_seconds", 0) or 0) > 0]
                 if on_screen:
@@ -2257,18 +2300,25 @@ def main():
                     # the tab title is the only thing that says which — so it, not
                     # the process, is what gets classified.
                     if any(b in top_app for b in browsers) and tabs:
+                        top_browser = top_app
                         top_app = max(tabs.items(), key=lambda kv: kv[1])[0]
             segments = usage.setdefault("segments", [])
             end_hm = local_now.strftime("%H:%M")
             if (segments and segments[-1].get("k") == ("active" if is_active else "idle")
                     and segments[-1].get("a") == top_app
+                    and segments[-1].get("b") == top_browser
                     and segments[-1].get("e") == slot_start):
                 # Contiguous with the previous entry: extend it.
                 segments[-1]["e"] = end_hm
             else:
-                segments.append({"s": slot_start, "e": end_hm,
-                                 "k": "active" if is_active else "idle",
-                                 "a": top_app})
+                seg = {"s": slot_start, "e": end_hm,
+                       "k": "active" if is_active else "idle",
+                       "a": top_app}
+                # Omitted rather than null when the segment is not a browser tab,
+                # so a day's segment list does not grow by a dead key per entry.
+                if top_browser:
+                    seg["b"] = top_browser
+                segments.append(seg)
 
             status, resp = client.post_time_slot(rows, tabs, started, interval,
                                                  active_seconds, audio_seconds)

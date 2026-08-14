@@ -14,6 +14,7 @@ Two parts of it matter here, and they are keyed differently:
 |---|---|---|
 | `usage.apps` | **process name** | `chrome`, `code`, `spotify`, `gnome-terminal-server` |
 | `usage.hours[HH].focus` | **window title** | `YouTube`, `HR Portal - Young Globes`, `gnome-terminal-server` |
+| `usage.hours[HH].focus_browser` | **window title** | `{"YouTube": "firefox"}` — which browser that tab was open in |
 
 `focus` is the one that drives categorisation, because it is the only place a
 browser can be split at all: a process called `chrome` says nothing about
@@ -27,10 +28,29 @@ browser tab arrives under its page title.
 2. Otherwise the **longest entry contained in the name** wins. This is why
    `terminal` classifies `gnome-terminal-server`, and why classifying `codex`
    explicitly beats the accidental `code` hit inside it.
-3. **Unmatched browser tabs inherit the browser's own category.**
+3. **Unmatched browser tabs inherit the browser's own category** — the browser
+   named in `focus_browser` for that tab, falling back to the day's single
+   inferred browser for days recorded before that field existed.
 4. Anything still unmatched is **unclassified** — it counts towards no category.
 
 Rule 3 is the one worth understanding.
+
+### Which browser a tab belongs to
+
+`focus` keys a tab by its page title alone, so the browser is not recoverable
+from it. The dashboard used to infer one browser for the whole day — the first
+entry in `usage.apps` matching a list of known browser names — and give every
+unmatched tab that browser's category.
+
+That is correct while exactly one browser is running and quietly wrong the
+moment a second is: whichever browser was **opened first that day** claimed the
+other's pages. A Firefox tab was reported as `chrome`, and took Chrome's
+category with it, purely because Chrome was started earlier.
+
+`focus_browser` records the owning browser per tab at capture time, resolved
+from the focused window's PID (exact) or its `wm_class` (fallback). Segments
+carry the same thing as `"b"`. Both are additive: a day without them falls back
+to the old inference rather than losing its categories.
 
 ## Why browsers work by exception
 
