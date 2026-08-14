@@ -92,6 +92,10 @@ export class BasicInfoFormComponent extends TranslationBaseComponent implements 
 				imageId: [null],
 				password: [null, [Validators.required, Validators.minLength(4)]],
 				startedWorkOn: [null],
+				// Operator-chosen employee identifier. Optional — left blank the
+				// employee keeps only its generated UUID, which is how every
+				// employee created before this field existed still behaves.
+				employeeCode: [null, [Validators.maxLength(64)]],
 				role: [null],
 				offerDate: [null],
 				acceptDate: [null],
@@ -398,6 +402,7 @@ export class BasicInfoFormComponent extends TranslationBaseComponent implements 
 		const { id: organizationId, tenantId } = this.organization;
 		const { password, tags } = this.form.value;
 		const { offerDate = null, acceptDate = null, rejectDate = null, startedWorkOn = null } = this.form.value;
+		const { employeeCode = null } = this.form.value;
 
 		const employee: IEmployeeCreateInput = {
 			tenantId,
@@ -409,6 +414,10 @@ export class BasicInfoFormComponent extends TranslationBaseComponent implements 
 			offerDate,
 			acceptDate,
 			rejectDate,
+			// Send undefined rather than an empty string when it was left blank: the
+			// unique index treats '' as a real value, so two blank submissions would
+			// collide with each other, while NULLs never do.
+			employeeCode: employeeCode?.trim() || undefined,
 			tags
 		};
 

@@ -77,6 +77,14 @@ export interface IEmployee extends IBasePerTenantAndOrganizationEntityModel, ITa
 	offerDate?: Date;
 	acceptDate?: Date;
 	rejectDate?: Date;
+	/**
+	 * Human-chosen identifier for the employee (EMP001, YG-014, a payroll
+	 * number). Distinct from `id`, which stays the generated UUID every other
+	 * table references — a primary key that people type is a primary key people
+	 * mistype, and it is already a foreign key in time slots, screenshots and
+	 * timesheets. Optional, and unique per organisation when set.
+	 */
+	employeeCode?: string;
 	employeeLevel?: string;
 	anonymousBonus?: boolean;
 	organizationEmploymentTypes?: IOrganizationEmploymentType[];
@@ -174,6 +182,7 @@ export interface IEmployeeUpdateInput extends IBasePerTenantAndOrganizationEntit
 	offerDate?: Date;
 	acceptDate?: Date;
 	rejectDate?: Date;
+	employeeCode?: string;
 	short_description?: string;
 	description?: string;
 	averageIncome?: number;
@@ -223,6 +232,8 @@ export interface IEmployeeCreateInput extends IBasePerTenantAndOrganizationEntit
 	 * handler; this field is a request, not an instruction.
 	 */
 	roleName?: RolesEnum;
+	/** Operator-supplied employee code. Generated if omitted — see the create handler. */
+	employeeCode?: string;
 	offerDate?: Date;
 	acceptDate?: Date;
 	rejectDate?: Date;

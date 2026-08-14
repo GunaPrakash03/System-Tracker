@@ -39,6 +39,12 @@ export class UpdateEmployeeDTO
 			'allowLogoutFromAgentApp',
 			'trackKeyboardMouseActivity',
 			'trackAllDisplays'
-		] as const)
+		] as const),
+
+		// This DTO is an explicit allow-list, so a field absent from every PickType
+		// is dropped on update without an error — the request succeeds and the value
+		// simply does not change. `employeeCode` has to be named here or it would be
+		// settable at creation and permanently uneditable afterwards.
+		PickType(Employee, ['employeeCode'] as const)
 	)
 	implements IEmployeeUpdateInput {}

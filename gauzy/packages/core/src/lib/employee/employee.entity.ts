@@ -182,6 +182,26 @@ export class Employee extends TenantOrganizationBaseEntity implements IEmployee,
 	@MultiORMColumn({ nullable: true })
 	rejectDate?: Date;
 
+	/**
+	 * Human-chosen employee identifier (EMP001, YG-014, a payroll number).
+	 *
+	 * Deliberately NOT the primary key. `id` is a generated UUID that time
+	 * slots, screenshots, timesheets and a dozen other tables carry as a foreign
+	 * key; making it operator-typed would invite collisions and typos into the
+	 * one column nothing else can tolerate them in. This is a second, editable
+	 * identifier that people actually read.
+	 *
+	 * Nullable because every employee that already exists has none, and a NOT
+	 * NULL column cannot be added to a populated table without inventing values
+	 * for rows nobody has looked at yet.
+	 */
+	@ApiPropertyOptional({ type: () => String, maxLength: 64 })
+	@IsOptional()
+	@IsString()
+	@MaxLength(64)
+	@MultiORMColumn({ length: 64, nullable: true })
+	employeeCode?: string;
+
 	@ApiPropertyOptional({ type: () => String, maxLength: 500 })
 	@IsOptional()
 	@IsString()

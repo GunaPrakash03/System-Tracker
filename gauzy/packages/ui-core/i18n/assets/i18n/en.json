@@ -369,6 +369,7 @@
 		"FILTER": "Filter",
 		"EMAIL": "Email",
 		"LABELS": {
+			"EMPLOYEE_CODE": "Employee ID",
 			"NAME": "Name",
 			"PHONE_NUMBER": "Phone Number",
 			"WEBSITE": "Website",
@@ -533,6 +534,7 @@
 			"STANDARD_WORK_HOURS_PER_DAY": "Standard Work Hours Per Day"
 		},
 		"PLACEHOLDERS": {
+			"EMPLOYEE_CODE": "e.g. EMP001 (optional)",
 			"NAME": "Name",
 			"PHONE_NUMBER": "Phone Number",
 			"DEFAULT": "Default",
